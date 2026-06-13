@@ -8,6 +8,18 @@ local delfile = delfile or function(file)
 	writefile(file, '')
 end
 
+-- Create folders first
+for _, folder in {'newvape', 'newvape/games', 'newvape/profiles', 'newvape/assets', 'newvape/libraries', 'newvape/guis'} do
+	if not isfolder(folder) then
+		makefolder(folder)
+	end
+end
+
+-- Write a fallback commit.txt immediately so downloadFile never errors on missing file
+if not isfile('newvape/profiles/commit.txt') then
+	writefile('newvape/profiles/commit.txt', 'main')
+end
+
 local function downloadFile(path, func)
 	if not isfile(path) then
 		local suc, res = pcall(function()
@@ -34,17 +46,11 @@ local function wipeFolder(path)
 	end
 end
 
-for _, folder in {'newvape', 'newvape/games', 'newvape/profiles', 'newvape/assets', 'newvape/libraries', 'newvape/guis'} do
-	if not isfolder(folder) then
-		makefolder(folder)
-	end
-end
-
 if not shared.VapeDeveloper then
 	local _, subbed = pcall(function()
 		return game:HttpGet('https://github.com/AverageClumzyPerson/AverageDeveloperScript')
 	end)
-	local commit = subbed:find('currentOid')
+	local commit = subbed and subbed:find('currentOid')
 	commit = commit and subbed:sub(commit + 13, commit + 52) or nil
 	commit = commit and #commit == 40 and commit or 'main'
 	if commit == 'main' or (isfile('newvape/profiles/commit.txt') and readfile('newvape/profiles/commit.txt') or '') ~= commit then
@@ -56,6 +62,12 @@ if not shared.VapeDeveloper then
 	writefile('newvape/profiles/commit.txt', commit)
 end
 
-return loadstring(downloadFile('newvape/main.lua'), 'main')({
-    Username = shared.ValidatedUsername
+local _loadstring = clonefunction(loadstring)
+local source = downloadFile('newvape/main.lua')
+local fn, err = _loadstring(source, 'main')
+if not fn then
+	error('[AverageDeveloperScript] Failed to load main.lua: ' .. tostring(err))
+end
+fn({
+	Username = shared.ValidatedUsername
 })
