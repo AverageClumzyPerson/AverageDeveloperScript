@@ -1,8 +1,7 @@
-local _ARGS = {...}
 repeat task.wait() until game:IsLoaded()
 if shared.vape then shared.vape:Uninject() end
 
-local args = _ARGS[1]
+local args = nil
 if type(args) == "table" and args.Username then
 	shared.ValidatedUsername = args.Username
 end
@@ -241,14 +240,14 @@ if not shared.VapeIndependent then
 	_realLoadstring(downloadFile('newvape/games/universal.lua'), 'universal')()
 	local gameFileId = (game.GameId == 2619619496) and (game.PlaceId == 6872265039 and 6872265039 or 6872274481) or game.PlaceId
 	if isfile('newvape/games/' .. gameFileId .. '.lua') then
-		_realLoadstring(downloadFile('newvape/games/' .. gameFileId .. '.lua'), tostring(gameFileId))(table.unpack(_ARGS))
+		_realLoadstring(downloadFile('newvape/games/' .. gameFileId .. '.lua'), tostring(gameFileId))()
 	else
 		if not shared.VapeDeveloper then
 			local suc, res = pcall(function()
 				return game:HttpGet('https://raw.githubusercontent.com/toodiesjamming-stack/Fuzzynuts/' .. readfile('newvape/profiles/commit.txt') .. '/games/' .. gameFileId .. '.lua', true)
 			end)
 			if suc and res ~= '404: Not Found' then
-				_realLoadstring(downloadFile('newvape/games/' .. gameFileId .. '.lua'), tostring(gameFileId))(table.unpack(_ARGS))
+				_realLoadstring(downloadFile('newvape/games/' .. gameFileId .. '.lua'), tostring(gameFileId))()
 			end
 		end
 	end
