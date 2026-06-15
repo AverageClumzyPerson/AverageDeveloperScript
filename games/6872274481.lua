@@ -4361,251 +4361,84 @@ run(function()
 end)
 	
 run(function()
+    local Mode
     local Expand
-    local AutoToggle
-    local Visible
-    local VisibleColor
-    local Targets
-    local objects, set = {}, {}
-    local hitboxesActive = false
-    local autoToggleConnection = nil
-    local autoToggleFrameCounter = 0
-
-    local vector3new = Vector3.new
-    local vector3one = Vector3.one
-
-    local colorList = {
-        Red = Color3.fromRGB(255, 0, 0),
-        Blue = Color3.fromRGB(0, 100, 255),
-        Green = Color3.fromRGB(0, 255, 0),
-        Yellow = Color3.fromRGB(255, 255, 0),
-        Orange = Color3.fromRGB(255, 140, 0),
-        Purple = Color3.fromRGB(180, 0, 255),
-        White = Color3.fromRGB(255, 255, 255),
-        Cyan = Color3.fromRGB(0, 255, 255),
-        Pink = Color3.fromRGB(255, 50, 150),
-        Black = Color3.fromRGB(0, 0, 0)
-    }
-
-    local function shouldCreateHitbox(ent)
-        if not ent.Targetable then return false end
-        if ent.Player and Targets and Targets.Players and Targets.Players.Enabled then return true end
-        if not ent.Player and Targets and Targets.NPCs and Targets.NPCs.Enabled then return true end
-        return false
-    end
-
-    local _wallRayParams = RaycastParams.new()
-    _wallRayParams.FilterType = Enum.RaycastFilterType.Exclude
-    local function isTargetBehindWall(ent)
-        if not Targets or not Targets.Walls or not Targets.Walls.Enabled then return false end
-        if not ent.RootPart then return false end
-        local origin = entitylib.character.RootPart.Position
-        local target = ent.RootPart.Position
-        local direction = target - origin
-        _wallRayParams.FilterDescendantsInstances = {entitylib.character, ent.Character}
-        local result = workspace:Raycast(origin, direction, _wallRayParams)
-        if result then
-            local hitDist = (result.Position - origin).Magnitude
-            local targetDist = direction.Magnitude
-            if hitDist < targetDist - 0.5 then return true end
-        end
-        return false
-    end
-
-    local cachedExpandSize = vector3new(3, 6, 3)
-    local lastExpandValue = 0
-    local function updateExpandSize(val)
-        if val ~= lastExpandValue then
-            lastExpandValue = val
-            cachedExpandSize = vector3new(3, 6, 3) + vector3one * (val / 5)
-        end
-    end
-
+    local objects, set = {}
+    
     local function createHitbox(ent)
-        if not shouldCreateHitbox(ent) then return end
-        if isTargetBehindWall(ent) then return end
-        if objects[ent] then return end
-        local hitbox = Instance.new('Part')
-        hitbox.Size = cachedExpandSize
-        hitbox.Position = ent.RootPart.Position
-        hitbox.CanCollide = false
-        hitbox.Massless = true
-        hitbox.Transparency = Visible and Visible.Enabled and 0.5 or 1
-        if Visible and Visible.Enabled and VisibleColor then
-            hitbox.Color = colorList[VisibleColor.Value] or colorList.Red
-        end
-        hitbox.Parent = ent.Character
-        local weld = Instance.new('Motor6D')
-        weld.Part0 = hitbox
-        weld.Part1 = ent.RootPart
-        weld.Parent = hitbox
-        objects[ent] = hitbox
-    end
-
-    local function clearHitboxes()
-        for _, part in pairs(objects) do part:Destroy() end
-        table.clear(objects)
-    end
-
-    local function refreshAllHitboxes()
-        clearHitboxes()
-        local entityList = entitylib.List
-        for i = 1, #entityList do
-            createHitbox(entityList[i])
+        if ent.Targetable and ent.Player then
+            local hitbox = Instance.new('Part')
+            hitbox.Size = Vector3.new(3, 6, 3) + Vector3.one * (Expand.Value / 5)
+            hitbox.Position = ent.RootPart.Position
+            hitbox.CanCollide = false
+            hitbox.Massless = true
+            hitbox.Transparency = 1
+            hitbox.Parent = ent.Character
+            local weld = Instance.new('Motor6D')
+            weld.Part0 = hitbox
+            weld.Part1 = ent.RootPart
+            weld.Parent = hitbox
+            objects[ent] = hitbox
         end
     end
-
-    local function swordModeEnabled()
-        return SwordMode and SwordMode.Enabled
-    end
-
-    local function playerModeEnabled()
-        return PlayerMode and PlayerMode.Enabled
-    end
-
-    local function handleAutoToggle()
-        if not AutoToggle or not AutoToggle.Enabled then return end
-        if not HitBoxes.Enabled or not playerModeEnabled() then return end
-        local holdingSword = isSword()
-        if holdingSword and not hitboxesActive then
-            hitboxesActive = true
-            refreshAllHitboxes()
-        elseif not holdingSword and hitboxesActive then
-            hitboxesActive = false
-            clearHitboxes()
-        end
-    end
-
+    
     HitBoxes = vape.Categories.Blatant:CreateModule({
-        Name = 'HitBoxesV2',
+        Name = 'Hit Boxes',
         Function = function(callback)
             if callback then
-                updateExpandSize(Expand.Value)
-
-                -- Sword mode
-                if swordModeEnabled() then
+                if Mode.Value == 'Sword' then
                     debug.setconstant(bedwars.SwordController.swingSwordInRegion, 6, (Expand.Value / 3))
                     set = true
-                end
-
-                -- Player mode
-                if playerModeEnabled() then
-                    HitBoxes:Clean(entitylib.Events.EntityAdded:Connect(function(ent)
-                        if AutoToggle and AutoToggle.Enabled then
-                            if hitboxesActive then createHitbox(ent) end
-                        else
-                            createHitbox(ent)
-                        end
-                    end))
+                else
+                    HitBoxes:Clean(entitylib.Events.EntityAdded:Connect(createHitbox))
                     HitBoxes:Clean(entitylib.Events.EntityRemoving:Connect(function(ent)
-                        local obj = objects[ent]
-                        if obj then obj:Destroy() objects[ent] = nil end
+                        if objects[ent] then
+                            objects[ent]:Destroy()
+                            objects[ent] = nil
+                        end
                     end))
-                    if AutoToggle and AutoToggle.Enabled then
-                        handleAutoToggle()
-                    else
-                        refreshAllHitboxes()
+                    for _, ent in entitylib.List do
+                        createHitbox(ent)
                     end
-                    local hitboxThrottleCounter = 0
-                    HitBoxes:Clean(runService.Heartbeat:Connect(function()
-                        if not Targets or not Targets.Walls or not Targets.Walls.Enabled then return end
-                        hitboxThrottleCounter = hitboxThrottleCounter + 1
-                        if hitboxThrottleCounter % 20 ~= 0 then return end
-                        for ent, part in pairs(objects) do
-                            if isTargetBehindWall(ent) then
-                                part:Destroy()
-                                objects[ent] = nil
-                            end
-                        end
-                        local entityList = entitylib.List
-                        for i = 1, #entityList do
-                            local ent = entityList[i]
-                            if not objects[ent] then
-                                if AutoToggle and AutoToggle.Enabled then
-                                    if hitboxesActive then createHitbox(ent) end
-                                else
-                                    createHitbox(ent)
-                                end
-                            end
-                        end
-                    end))
                 end
             else
-                hitboxesActive = false
                 if set then
                     debug.setconstant(bedwars.SwordController.swingSwordInRegion, 6, 3.8)
                     set = nil
                 end
-                clearHitboxes()
+                for _, part in objects do
+                    part:Destroy()
+                end
+                table.clear(objects)
             end
         end,
         Tooltip = 'Expands attack hitbox'
     })
-
-    Targets = HitBoxes:CreateTargets({
-        Players = true,
-        Walls = false,
-        NPCs = false,
+    Mode = HitBoxes:CreateDropdown({
+        Name = 'Mode',
+        List = {'Sword', 'Player'},
         Function = function()
-            if HitBoxes.Enabled and playerModeEnabled() then
-                if AutoToggle and AutoToggle.Enabled then
-                    if hitboxesActive then refreshAllHitboxes() end
-                else
-                    refreshAllHitboxes()
-                end
-            end
-        end
-    })
-
-    SwordMode = HitBoxes:CreateToggle({
-        Name = 'Sword Mode',
-        Default = true,
-        Tooltip = 'Increases the sword swing range around you',
-        Function = function(callback)
             if HitBoxes.Enabled then
-                if callback then
-                    debug.setconstant(bedwars.SwordController.swingSwordInRegion, 6, (Expand.Value / 3))
-                    set = true
-                else
-                    debug.setconstant(bedwars.SwordController.swingSwordInRegion, 6, 3.8)
-                    set = nil
-                end
+                HitBoxes:Toggle()
+                HitBoxes:Toggle()
             end
-        end
+        end,
+        Tooltip = 'Sword - Increases the range around you to hit entities\Player - Increases the players hitbox'
     })
-
-    PlayerMode = HitBoxes:CreateToggle({
-        Name = 'Player Mode',
-        Default = true,
-        Tooltip = 'Increases the players hitbox size',
-        Function = function(callback)
-            if AutoToggle then AutoToggle.Object.Visible = callback end
-            if Visible then Visible.Object.Visible = callback end
-            if VisibleColor then VisibleColor.Object.Visible = callback and Visible and Visible.Enabled end
-            if HitBoxes.Enabled then
-                if callback then
-                    refreshAllHitboxes()
-                else
-                    clearHitboxes()
-                end
-            end
-        end
-    })
-
     Expand = HitBoxes:CreateSlider({
         Name = 'Expand amount',
         Min = 0,
-        Max = 50,
+        Max = 14.4,
         Default = 14.4,
         Decimal = 10,
         Function = function(val)
-            updateExpandSize(val)
             if HitBoxes.Enabled then
-                if swordModeEnabled() then
+                if Mode.Value == 'Sword' then
                     debug.setconstant(bedwars.SwordController.swingSwordInRegion, 6, (val / 3))
-                end
-                if playerModeEnabled() then
-                    for _, part in pairs(objects) do part.Size = cachedExpandSize end
+                else
+                    for _, part in objects do
+                        part.Size = Vector3.new(3, 6, 3) + Vector3.one * (val / 5)
+                    end
                 end
             end
         end,
@@ -4613,79 +4446,6 @@ run(function()
             return val == 1 and 'stud' or 'studs'
         end
     })
-
-    AutoToggle = HitBoxes:CreateToggle({
-        Name = 'Auto Toggle',
-        Default = false,
-        Tooltip = 'Automatically enables hitbox when holding a sword',
-        Function = function(callback)
-            if callback then
-                if autoToggleConnection then autoToggleConnection:Disconnect() end
-                hitboxesActive = false
-                autoToggleFrameCounter = 0
-                autoToggleConnection = runService.Heartbeat:Connect(function()
-                    autoToggleFrameCounter = autoToggleFrameCounter + 1
-                    if autoToggleFrameCounter % 5 == 0 then
-                        handleAutoToggle()
-                    end
-                end)
-                HitBoxes:Clean(autoToggleConnection)
-                handleAutoToggle()
-            else
-                if autoToggleConnection then
-                    autoToggleConnection:Disconnect()
-                    autoToggleConnection = nil
-                end
-                hitboxesActive = false
-                if HitBoxes.Enabled and playerModeEnabled() then
-                    refreshAllHitboxes()
-                end
-            end
-        end
-    })
-
-    Visible = HitBoxes:CreateToggle({
-        Name = 'Visible',
-        Default = false,
-        Tooltip = 'Makes the hitbox visible on screen',
-        Function = function(callback)
-            if VisibleColor then VisibleColor.Object.Visible = callback end
-            if HitBoxes.Enabled and playerModeEnabled() then
-                local transparency = callback and 0.5 or 1
-                local col = callback and VisibleColor and (colorList[VisibleColor.Value] or colorList.Red) or nil
-                for _, part in pairs(objects) do
-                    part.Transparency = transparency
-                    if col then part.Color = col end
-                end
-            end
-        end
-    })
-
-    VisibleColor = HitBoxes:CreateDropdown({
-        Name = 'Hitbox Color',
-        List = {'Red', 'Blue', 'Green', 'Yellow', 'Orange', 'Purple', 'White', 'Cyan', 'Pink', 'Black'},
-        Default = 'Red',
-        Visible = false,
-        Tooltip = 'Color of the visible hitbox',
-        Function = function(val)
-            if HitBoxes.Enabled and playerModeEnabled() and Visible.Enabled then
-                local col = colorList[val] or colorList.Red
-                for _, part in pairs(objects) do part.Color = col end
-            end
-        end
-    })
-
-    task.spawn(function()
-        repeat task.wait() until SwordMode and PlayerMode
-        if AutoToggle then AutoToggle.Object.Visible = true end
-        if Visible then Visible.Object.Visible = true end
-    end)
-
-    task.defer(function()
-        if VisibleColor and VisibleColor.Object then
-            VisibleColor.Object.Visible = false
-        end
-    end)
 end)
 	
 run(function()
@@ -24987,684 +24747,6 @@ run(function()
 end)
 
 run(function()
-    local AutoNahila
-    local AutoHealVeil
-    local HealVeilRange
-    local HealVeilThreshold
-    local HealVeilCooldown
-    local ShootProjectiles
-    local HealToggle
-    local HealRange
-    local HealDelay
-    local HealHPThresholdToggle
-    local HealHPThreshold
-    local BuffToggle
-    local BuffRange
-    local BuffDelay
-    local remote = nil
-    local running = false
-    local healVeilRunning = false
-    local healProjRunning = false
-    local buffProjRunning = false
-    local healProjThread = nil
-    local buffProjThread = nil
-    local healVeilThread = nil
-    local StatusEffectUtil = nil
-    local StatusEffectType = nil
-    local MaxBuffStacks = 30 
-
-    pcall(function()
-        local runtime = require(game:GetService("ReplicatedStorage"):WaitForChild("rbxts_include"):WaitForChild("RuntimeLib"))
-        local statusEffectPath = game:GetService("ReplicatedStorage"):WaitForChild("TS"):WaitForChild("status-effect")
-        StatusEffectUtil = runtime.import(script, statusEffectPath, "status-effect-util").StatusEffectUtil
-        StatusEffectType = runtime.import(script, statusEffectPath, "status-effect-type").StatusEffectType
-        local oasisConstants = runtime.import(script, game:GetService("ReplicatedStorage"):WaitForChild("TS"):WaitForChild("kit"):WaitForChild("oasis"):WaitForChild("oasis-constants"))
-        if oasisConstants and oasisConstants.OasisBalance then
-            MaxBuffStacks = oasisConstants.OasisBalance.MaxBuffStacks or 30
-        end
-    end)
-
-    local function getBuffStacks(player)
-        if player and player.Character then
-            local attr = player.Character:GetAttribute("StatusEffect_oasis_buff_charge_stacks")
-            if attr and attr > 0 then
-                return attr
-            end
-        end
-
-        if StatusEffectUtil and StatusEffectType and player and player.Character then
-            local success, stacks = pcall(function()
-                return StatusEffectUtil:getStacks(player.Character, StatusEffectType.OASIS_BUFF_CHARGE)
-            end)
-            if success and stacks then
-                return stacks
-            end
-        end
-
-        if player and player.Character then
-            local attr = player.Character:GetAttribute("OasisBuffStacks") or 0
-            return attr
-        end
-        return 0
-    end
-
-    local function getRemote()
-        if remote then return remote end
-        pcall(function()
-            remote = game:GetService("ReplicatedStorage"):WaitForChild("rbxts_include"):WaitForChild("node_modules"):WaitForChild("@rbxts"):WaitForChild("net"):WaitForChild("out"):WaitForChild("_NetManaged"):WaitForChild("AttemptFireOasisProjectiles")
-        end)
-        return remote
-    end
-
-    local function fireProjectile(targetPlayer, mode)
-        if not targetPlayer or not targetPlayer.Character then return false end
-        local remote = getRemote()
-        if not remote then return false end
-        
-        local success = pcall(function()
-            bedwars.Client:Get(remotes.AttemptFireOasisProjectiles).instance:InvokeServer(targetPlayer.UserId, mode)
-        end)
-        return success
-    end
-
-    local function useHealVeil()
-        if bedwars.AbilityController and bedwars.AbilityController:canUseAbility('oasis_heal_veil') then
-            bedwars.AbilityController:useAbility('oasis_heal_veil')
-            return true
-        end
-        return false
-    end
-
-    local function updateProjectilesUI()
-        local masterOn = ShootProjectiles.Enabled
-        if HealToggle and HealToggle.Object then
-            HealToggle.Object.Visible = masterOn
-            if HealRange and HealRange.Object then
-                HealRange.Object.Visible = masterOn and HealToggle.Enabled
-            end
-            if HealDelay and HealDelay.Object then
-                HealDelay.Object.Visible = masterOn and HealToggle.Enabled
-            end
-            if HealHPThresholdToggle and HealHPThresholdToggle.Object then
-                HealHPThresholdToggle.Object.Visible = masterOn and HealToggle.Enabled
-                if HealHPThreshold and HealHPThreshold.Object then
-                    HealHPThreshold.Object.Visible = masterOn and HealToggle.Enabled and HealHPThresholdToggle.Enabled
-                end
-            end
-        end
-        
-        if BuffToggle and BuffToggle.Object then
-            BuffToggle.Object.Visible = masterOn
-            if BuffRange and BuffRange.Object then
-                BuffRange.Object.Visible = masterOn and BuffToggle.Enabled
-            end
-            if BuffDelay and BuffDelay.Object then
-                BuffDelay.Object.Visible = masterOn and BuffToggle.Enabled
-            end
-        end
-    end
-
-    AutoNahila = vape.Categories.Kits:CreateModule({
-        Name = "AutoNahila",
-        Function = function(callback)
-            running = callback
-            
-            if callback then
-                if AutoHealVeil.Enabled then
-                    healVeilRunning = true
-                    healVeilThread = task.spawn(function()
-                        while healVeilRunning and AutoHealVeil.Enabled do
-                            if entitylib.isAlive then
-                                local teammates = getTeammates()
-                                local shouldHeal = false
-                                for _, player in ipairs(teammates) do
-                                    if player.Character and player.Character.PrimaryPart then
-                                        local dist = (player.Character.PrimaryPart.Position - entitylib.character.RootPart.Position).Magnitude
-                                        if dist <= HealVeilRange.Value then
-                                            local healthPercent = getPlayerHealthPercent(player)
-                                            if healthPercent < HealVeilThreshold.Value then
-                                                shouldHeal = true
-                                                break
-                                            end
-                                        end
-                                    end
-                                end
-                                if shouldHeal then
-                                    useHealVeil()
-                                    task.wait(HealVeilCooldown.Value)
-                                else
-                                    task.wait(0.5)
-                                end
-                            else
-                                task.wait(0.5)
-                            end
-                        end
-                        healVeilRunning = false
-                    end)
-                end
-
-                if ShootProjectiles.Enabled and HealToggle.Enabled then
-                    healProjRunning = true
-                    healProjThread = task.spawn(function()
-                        while healProjRunning and ShootProjectiles.Enabled and HealToggle.Enabled do
-                            if entitylib.isAlive then
-                                local target = getNearestTeammateInRange(HealRange.Value, function(player)
-                                    if HealHPThresholdToggle.Enabled then
-                                        return getPlayerHealthPercent(player) < HealHPThreshold.Value
-                                    end
-                                    return true
-                                end)
-                                if target then
-                                    fireProjectile(target, 0) 
-                                end
-                            end
-                            task.wait(HealDelay.Value)
-                        end
-                        healProjRunning = false
-                    end)
-                end
-
-                if ShootProjectiles.Enabled and BuffToggle.Enabled then
-                    buffProjRunning = true
-                    buffProjThread = task.spawn(function()
-                        while buffProjRunning and ShootProjectiles.Enabled and BuffToggle.Enabled do
-                            if entitylib.isAlive then
-                                local target = getNearestTeammateInRange(BuffRange.Value, function(player)
-                                    local stacks = getBuffStacks(player)
-                                    return stacks < MaxBuffStacks
-                                end)
-                                if target then
-                                    fireProjectile(target, 1) 
-                                end
-                            end
-                            task.wait(BuffDelay.Value)
-                        end
-                        buffProjRunning = false
-                    end)
-                end
-
-                updateProjectilesUI()
-
-                AutoNahila:Clean(function()
-                    healVeilRunning = false
-                    healProjRunning = false
-                    buffProjRunning = false
-                    if healVeilThread then task.cancel(healVeilThread) end
-                    if healProjThread then task.cancel(healProjThread) end
-                    if buffProjThread then task.cancel(buffProjThread) end
-                end)
-
-            else
-                healVeilRunning = false
-                healProjRunning = false
-                buffProjRunning = false
-                if healVeilThread then task.cancel(healVeilThread) end
-                if healProjThread then task.cancel(healProjThread) end
-                if buffProjThread then task.cancel(buffProjThread) end
-            end
-        end,
-        Tooltip = "Automatically use Oasis abilities: Heal Veil and projectiles (Heal/Buff)."
-    })
-
-    AutoHealVeil = AutoNahila:CreateToggle({
-        Name = "Auto Heal (Oasis)",
-        Default = false,
-        Function = function(val)
-            if HealVeilRange and HealVeilRange.Object then HealVeilRange.Object.Visible = val end
-            if HealVeilThreshold and HealVeilThreshold.Object then HealVeilThreshold.Object.Visible = val end
-            if HealVeilCooldown and HealVeilCooldown.Object then HealVeilCooldown.Object.Visible = val end
-            if AutoNahila.Enabled then
-                if val then
-                    healVeilRunning = true
-                    healVeilThread = task.spawn(function()
-                        while healVeilRunning and AutoHealVeil.Enabled do
-                            if entitylib.isAlive then
-                                local teammates = getTeammates()
-                                local shouldHeal = false
-                                for _, player in ipairs(teammates) do
-                                    if player.Character and player.Character.PrimaryPart then
-                                        local dist = (player.Character.PrimaryPart.Position - entitylib.character.RootPart.Position).Magnitude
-                                        if dist <= HealVeilRange.Value then
-                                            local healthPercent = getPlayerHealthPercent(player)
-                                            if healthPercent < HealVeilThreshold.Value then
-                                                shouldHeal = true
-                                                break
-                                            end
-                                        end
-                                    end
-                                end
-                                if shouldHeal then
-                                    useHealVeil()
-                                    task.wait(HealVeilCooldown.Value)
-                                else
-                                    task.wait(0.5)
-                                end
-                            else
-                                task.wait(0.5)
-                            end
-                        end
-                        healVeilRunning = false
-                    end)
-                else
-                    healVeilRunning = false
-                    if healVeilThread then task.cancel(healVeilThread) end
-                end
-            end
-        end,
-        Tooltip = "Automatically use Oasis Heal Veil when teammates are low."
-    })
-    
-    HealVeilRange = AutoNahila:CreateSlider({
-        Name = "Heal Veil Range",
-        Min = 1,
-        Max = 30,
-        Default = 15,
-        Suffix = " studs",
-        Tooltip = "Range to check for teammates needing heal.",
-        Visible = false
-    })
-    
-    HealVeilThreshold = AutoNahila:CreateSlider({
-        Name = "Heal Threshold",
-        Min = 1,
-        Max = 100,
-        Default = 50,
-        Suffix = "%",
-        Tooltip = "Use Heal Veil when any teammate's HP is below this.",
-        Visible = false
-    })
-    
-    HealVeilCooldown = AutoNahila:CreateSlider({
-        Name = "Heal Cooldown",
-        Min = 5,
-        Max = 60,
-        Default = 30,
-        Suffix = "s",
-        Tooltip = "Time between Heal Veil uses.",
-        Visible = false
-    })
-
-    ShootProjectiles = AutoNahila:CreateToggle({
-        Name = "Shoot Projectiles",
-        Default = false,
-        Function = function(val)
-            updateProjectilesUI()
-            
-            if AutoNahila.Enabled then
-                if val then
-                    if HealToggle.Enabled then
-                        healProjRunning = true
-                        healProjThread = task.spawn(function()
-                            while healProjRunning and ShootProjectiles.Enabled and HealToggle.Enabled do
-                                if entitylib.isAlive then
-                                    local target = getNearestTeammateInRange(HealRange.Value, function(player)
-                                        if HealHPThresholdToggle.Enabled then
-                                            return getPlayerHealthPercent(player) < HealHPThreshold.Value
-                                        end
-                                        return true
-                                    end)
-                                    if target then
-                                        fireProjectile(target, 0)
-                                    end
-                                end
-                                task.wait(HealDelay.Value)
-                            end
-                            healProjRunning = false
-                        end)
-                    end
-                    
-                    if BuffToggle.Enabled then
-                        buffProjRunning = true
-                        buffProjThread = task.spawn(function()
-                            while buffProjRunning and ShootProjectiles.Enabled and BuffToggle.Enabled do
-                                if entitylib.isAlive then
-                                    local target = getNearestTeammateInRange(BuffRange.Value, function(player)
-                                        local stacks = getBuffStacks(player)
-                                        return stacks < MaxBuffStacks
-                                    end)
-                                    if target then
-                                        fireProjectile(target, 1)
-                                    end
-                                end
-                                task.wait(BuffDelay.Value)
-                            end
-                            buffProjRunning = false
-                        end)
-                    end
-                else
-                    healProjRunning = false
-                    buffProjRunning = false
-                    if healProjThread then task.cancel(healProjThread) end
-                    if buffProjThread then task.cancel(buffProjThread) end
-                end
-            end
-        end,
-        Tooltip = "Enable projectile shooting."
-    })
-
-    HealToggle = AutoNahila:CreateToggle({
-        Name = "Heal",
-        Default = true,
-        Function = function(val)
-            updateProjectilesUI() 
-            if AutoNahila.Enabled and ShootProjectiles.Enabled then
-                if val and not healProjRunning then
-                    healProjRunning = true
-                    healProjThread = task.spawn(function()
-                        while healProjRunning and ShootProjectiles.Enabled and HealToggle.Enabled do
-                            if entitylib.isAlive then
-                                local target = getNearestTeammateInRange(HealRange.Value, function(player)
-                                    if HealHPThresholdToggle.Enabled then
-                                        return getPlayerHealthPercent(player) < HealHPThreshold.Value
-                                    end
-                                    return true
-                                end)
-                                if target then
-                                    fireProjectile(target, 0)
-                                end
-                            end
-                            task.wait(HealDelay.Value)
-                        end
-                        healProjRunning = false
-                    end)
-                elseif not val and healProjRunning then
-                    healProjRunning = false
-                    if healProjThread then task.cancel(healProjThread) end
-                end
-            end
-        end,
-        Tooltip = "Shoot healing projectiles.",
-        Visible = false
-    })
-    
-    HealRange = AutoNahila:CreateSlider({
-        Name = "Heal Range",
-        Min = 1,
-        Max = 30,
-        Default = 20,
-        Suffix = " studs",
-        Tooltip = "Max distance to target for healing.",
-        Visible = false
-    })
-    
-    HealDelay = AutoNahila:CreateSlider({
-        Name = "Heal Delay",
-        Min = 0.1,
-        Max = 2,
-        Default = 0.4,
-        Decimal = 10,
-        Suffix = "s",
-        Tooltip = "Delay between heal shots.",
-        Visible = false
-    })
-    
-    HealHPThresholdToggle = AutoNahila:CreateToggle({
-        Name = "HP Threshold",
-        Default = true,
-        Function = function(val)
-            updateProjectilesUI()
-        end,
-        Tooltip = "Only shoot heal if teammate HP below threshold.",
-        Visible = false
-    })
-    
-    HealHPThreshold = AutoNahila:CreateSlider({
-        Name = "Heal HP %",
-        Min = 1,
-        Max = 100,
-        Default = 70,
-        Suffix = "%",
-        Tooltip = "Shoot heal when teammate HP below this.",
-        Visible = false
-    })
-
-    BuffToggle = AutoNahila:CreateToggle({
-        Name = "Buff",
-        Default = true,
-        Function = function(val)
-            updateProjectilesUI() 
-            if AutoNahila.Enabled and ShootProjectiles.Enabled then
-                if val and not buffProjRunning then
-                    buffProjRunning = true
-                    buffProjThread = task.spawn(function()
-                        while buffProjRunning and ShootProjectiles.Enabled and BuffToggle.Enabled do
-                            if entitylib.isAlive then
-                                local target = getNearestTeammateInRange(BuffRange.Value, function(player)
-                                    local stacks = getBuffStacks(player)
-                                    return stacks < MaxBuffStacks
-                                end)
-                                if target then
-                                    fireProjectile(target, 1)
-                                end
-                            end
-                            task.wait(BuffDelay.Value)
-                        end
-                        buffProjRunning = false
-                    end)
-                elseif not val and buffProjRunning then
-                    buffProjRunning = false
-                    if buffProjThread then task.cancel(buffProjThread) end
-                end
-            end
-        end,
-        Tooltip = "Shoot buff projectiles (stops at max stacks).",
-        Visible = false
-    })
-    
-    BuffRange = AutoNahila:CreateSlider({
-        Name = "Buff Range",
-        Min = 1,
-        Max = 30,
-        Default = 20,
-        Suffix = " studs",
-        Tooltip = "Max distance to target for buff.",
-        Visible = false
-    })
-    
-    BuffDelay = AutoNahila:CreateSlider({
-        Name = "Buff Delay",
-        Min = 0.1,
-        Max = 2,
-        Default = 0.4,
-        Decimal = 10,
-        Suffix = "s",
-        Tooltip = "Delay between buff shots.",
-        Visible = false
-    })
-end)
-
-run(function()
-	local AutoHannah
-	local Targets
-	local Sort
-	local Distance
-	local Void
-	local KATarget 
-
-	AutoHannah = vape.Categories.Kits:CreateModule({
-		Name = "AutoHannah",
-		Tooltip = 'auto execute players',
-		Function = function(callback)
-			if callback then
-				task.spawn(function()
-					local objs = collection('HannahExecuteInteraction', AutoHannah)
-
-					while AutoHannah.Enabled do
-						task.wait(0.1)
-						if not entitylib.isAlive then continue end
-
-						local localPosition = entitylib.character.RootPart.Position
-
-						for _, v in objs do
-							if not AutoHannah.Enabled then break end
-							local part = not v:IsA('Model') and v or v.PrimaryPart
-							if not part then continue end
-							if (part.Position - localPosition).Magnitude > Distance.Value then continue end
-							if Void.Enabled and isAboveVoid(part.Position) then continue end
-							local success = bedwars.Client:Get(remotes.HannahPromptTrigger).instance:InvokeServer({
-								user = lplr,
-								victimEntity = v
-							})
-							if success then
-								local icon = v:FindFirstChild('Hannah Execution Icon')
-								if icon then icon:Destroy() end
-							end
-							task.wait(0.05)
-						end
-					end
-				end)
-			end
-		end
-	})
-
-	Targets = AutoHannah:CreateTargets({
-		Players = true,
-		Walls = false,
-		NPCs = false
-	})
-	local methods = {'Damage', 'Distance'}
-	for i in pairs(sortmethods) do
-		if not table.find(methods, i) then
-			table.insert(methods, i)
-		end
-	end
-	Sort = AutoHannah:CreateDropdown({Name = 'Sort', List = methods})
-	Distance = AutoHannah:CreateSlider({
-		Name = "Distance",
-		Min = 0,
-		Max = 16,
-		Default = 12,
-		Suffix = 'studs'
-	})
-	Void = AutoHannah:CreateToggle({
-		Name = 'Void',
-		Tooltip = 'Will not execute a player if they are falling in the void',
-		Default = true,
-	})
-	KATarget = AutoHannah:CreateToggle({
-		Name = 'Use KA Target',
-		Default = false,
-	})
-end)
-
-run(function()
-	local AutoNyx
-	local Targets
-
-	AutoNyx = vape.Categories.Kits:CreateModule({
-		Name = 'AutoNyx',
-		Tooltip = 'pop abiltiy',
-		Function = function(call)
-			if call then
-				AutoNyx:Clean(vapeEvents.EntityDamageEvent.Event:Connect(function(dmgtbl)
-					if dmgtbl.damageType == 0 and dmgtbl.fromEntity and dmgtbl.fromEntity.Name == lplr.Name then
-						local ent = entitylib.EntityPosition({
-							Range = 14,
-							Part = 'RootPart',
-							Players = Targets.Players.Enabled,
-							NPCs = Targets.NPCs.Enabled
-						})
-						if bedwars.AbilityController:canUseAbility('midnight') and ent then
-							bedwars.AbilityController:useAbility('midnight')
-						end
-					end
-				end))
-			end
-		end
-	})
-
-	Targets = AutoNyx:CreateTargets({
-		Players = true,
-		NPCs = false
-	})
-end)
-
-run(function()
-	local AutoWarden
-	local Range
-	local Delay
-	local FOV
-
-	AutoWarden = vape.Categories.Kits:CreateModule({
-		Name = "AutoWarden",
-		Tooltip = "Automatically collects souls",
-		Function = function(callback)
-			if callback then
-				local lastManualClick = 0
-				local swingOnlyConn = inputService.InputBegan:Connect(function(input, gameProcessed)
-					if gameProcessed then return end
-					if input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-					lastManualClick = tick()
-				end)
-				AutoWarden:Clean(swingOnlyConn)
-
-				repeat
-					if not entitylib.isAlive then
-						task.wait(0.1)
-						continue
-					end
-
-					local localPosition = entitylib.character.RootPart.Position
-					local fovRadius = math.tan(math.rad(FOV.Value / 2))
-
-					for _, v in collection('jailor_soul', AutoWarden) do
-						if not AutoWarden.Enabled then break end
-						local part = not v:IsA('Model') and v or v.PrimaryPart
-						if not part then continue end
-
-						local dist = (part.Position - localPosition).Magnitude
-						if dist > Range.Value then continue end
-
-						local camera = workspace.CurrentCamera
-						local screenPos, onScreen = camera:WorldToViewportPoint(part.Position)
-						if onScreen then
-							local centerX = camera.ViewportSize.X / 2
-							local centerY = camera.ViewportSize.Y / 2
-							local dx = (screenPos.X - centerX) / camera.ViewportSize.X
-							local dy = (screenPos.Y - centerY) / camera.ViewportSize.Y
-							local screenDist = math.sqrt(dx * dx + dy * dy)
-							if screenDist > fovRadius then continue end
-						else
-							continue
-						end
-
-						task.wait(Delay.Value)
-						pcall(function()
-							bedwars.JailorController:collectEntity(lplr, v, 'JailorSoul')
-						end)
-						task.wait(0.05)
-					end
-
-					task.wait(0.1)
-				until not AutoWarden.Enabled
-			end
-		end
-	})
-
-	Range = AutoWarden:CreateSlider({
-		Name = "Range",
-		Min = 1,
-		Max = 50,
-		Default = 20,
-	})
-
-	Delay = AutoWarden:CreateSlider({
-		Name = "Delay",
-		Min = 0,
-		Max = 2,
-		Default = 0,
-		Decimal = 10,
-	})
-
-	FOV = AutoWarden:CreateSlider({
-		Name = "FOV",
-		Min = 1,
-		Max = 360,
-		Default = 360,
-	})
-end)
-
-run(function()
 	local FishermanSpy
 	local IgnoreTeammates
 
@@ -35489,7 +34571,7 @@ run(function()
         Function = function(callback)
             if callback then
                 repeat
-                    bedwars.Client:Get('PlayerEatCake'):SendToServer({block = replicatedStorage.Items.cake_one})
+                    bedwars.Client:Get('PlayerEatCake'):SendToServer({block = lplr})
                     task.wait(0.1)
                 until not InfiniteShield.Enabled
             end
@@ -35510,67 +34592,114 @@ run(function()
 end)
 
 
+
 run(function()
-    local InfiniteFly
-    local HiddenPart = Instance.new('Part')
-    HiddenPart.Parent = workspace
-    HiddenPart.Transparency = 1
-    HiddenPart.CanQuery = false
-    HiddenPart.CanTouch = false
-    HiddenPart.CanCollide = false
-    HiddenPart.Anchored = true
+    local CheatDetector
     
-    local oldTransparency = {}
-    local function doCharacterThing()
-        if entitylib.isAlive then
-            for _, v in entitylib.character.Character:QueryDescendants('BasePart') do
-                oldTransparency[v] = v.Transparency
-                v.Transparency = 1
-            end
+    local function Added(player, reason)
+        if not CheatersFlagged[player] then
+            CheatersFlagged[player] = true
+            whitelist.customtags[player.Name] = {{ text = 'CHEATER', color = Color3.new(1, 0, 0)}}
+            notif('CheatDetector', `{player.Name} flagged for {reason:lower()}ing`, 10, 'info')
         end
     end
-    
-    local function revertCharacter()
-        if entitylib.isAlive then
-            for _, v in entitylib.character.Character:QueryDescendants('BasePart') do
-                v.Transparency = oldTransparency[v]
+    local function checkPoint(pos, params)
+        for _, v in workspace:GetPartBoundsInRadius(pos, 0, params) do
+            if v.CanCollide and (v:GetClosestPointOnSurface(pos) - pos).Magnitude <= 0 then
+                return false
             end
         end
+    
+        return true
     end
     
-    InfiniteFly = vape.Categories.Blatant:CreateModule({
-        Name = 'Infinite Fly',
-        Function = function(callback)
-            gameCamera.CameraSubject = callback and HiddenPart or entitylib.character.Character
-            if callback then
-                doCharacterThing()
-                HiddenPart.CFrame = entitylib.character.Character.Head.CFrame
-                entitylib.character.RootPart.CFrame = CFrame.new(Vector3.new(entitylib.character.RootPart.CFrame.X, 210, entitylib.character.RootPart.CFrame.Z))
-                InfiniteFly:Clean(runService.RenderStepped:Connect(function(dt)
-                    if not entitylib.isAlive then
-                        return
+    local overlap = OverlapParams.new()
+    overlap.FilterDescendantsInstances = {workspace.Map}
+    overlap.FilterType = Enum.RaycastFilterType.Include
+    
+    local Checks = {
+        Killaura = function()
+            local AttackData = {}
+            local Strikes = {}
+    
+            CheatDetector:Clean(shared.bindable.Event:Connect(function(damageTable)
+                if damageTable.damageType == 0 and damageTable.fromEntity then
+                    local from = playersService:GetPlayerFromCharacter(damageTable.fromEntity)
+    
+                    if from and from ~= lplr then
+                        local lastHit = (os.clock() - (AttackData[from] or 0))
+                        if lastHit <= 0.28 then
+                            Strikes[from] = (Strikes[from] or 0) + 1
+    
+                            task.delay(60, function()
+                                pcall(function()
+                                    Strikes[from] -= 1
+                                end)
+                            end)
+    
+                            if Strikes[from] > 2 then
+                                Added(from, 'Killaura')
+                            end
+                        end
+    
+                        AttackData[from] = os.clock()
                     end
-    
-                    HiddenPart.CFrame = CFrame.new(Vector3.new(entitylib.character.RootPart.Position.X, HiddenPart.CFrame.Y, entitylib.character.RootPart.Position.Z))
-    
-                    if entitylib.character.RootPart.CFrame.Y < -75 then
-                        bedwars.Client:Get('GroundHit'):SendToServer(nil, Vector3.new(0, entitylib.character.RootPart.Velocity.Y, 0), workspace:GetServerTimeNow())
-                        entitylib.character.RootPart.CFrame = CFrame.new(Vector3.new(entitylib.character.RootPart.CFrame.X, 210, entitylib.character.RootPart.CFrame.Z))
-                    else
-                        local ray = workspace:Raycast(entitylib.character.RootPart.Position + Vector3.new(0, 20, 0), Vector3.new(0, -1000, 0), store.airRay)
-                        if ray then
-                            entitylib.character.RootPart.Velocity = Vector3.zero
-                            entitylib.character.RootPart.CFrame = CFrame.new(Vector3.new(entitylib.character.RootPart.CFrame.X, ray.Position.Y + 2.7, entitylib.character.RootPart.CFrame.Z))
+                end
+            end))
+        end,
+        Reach = function()
+            CheatDetector:Clean(shared.bindable.Event:Connect(function(damageTable)
+                if damageTable.damageType == 0 and damageTable.fromEntity then
+                    local magnitude = (damageTable.fromEntity.PrimaryPart.Position - damageTable.entityInstance.PrimaryPart.Position).Magnitude
+                    if magnitude > (18 + lplr:GetNetworkPing()) then
+                        local player = playersService:GetPlayerFromCharacter(damageTable.fromEntity)
+                        if player and player ~= lplr then
+                            Added(player, 'Reach')
                         end
                     end
-                end))
-            else
-                revertCharacter()
+                end
+            end))
+        end,
+        Invisible = function() end,
+        HighJump = function() end,
+        Phase = function() end
+    }
+    
+    CheatDetector = vape.Categories.Utility:CreateModule({
+        Name = 'Cheat Detector',
+        Function = function(callback)
+            if callback then
+                for i, v in Checks do
+                    if CheatDetector.Options and CheatDetector.Options[i].Enabled then
+                        task.spawn(v)
+                    end
+                end
+    
+                repeat
+                    for _, v in entitylib.List do
+                        if v.Player and v.Player ~= lplr and v.Health > 0 and not CheatersFlagged[v.Player] then
+                            if CheatDetector.Options.Invisible.Enabled and (v.RootPart.Position - v.Head.Position).Magnitude > 5 then
+                                Added(v.Player, 'Invisible')
+                            end
+                            if CheatDetector.Options.HighJump.Enabled and v.RootPart.AssemblyLinearVelocity.Y > 80 then
+                                Added(v.Player, 'HighJump')
+                            end
+                            if CheatDetector.Options.Phase.Enabled and not checkPoint(v.Head.Position, overlap) then
+                                Added(v.Player, 'Phas')
+                            end
+                        end
+                    end
+                    task.wait(0.1)
+                until not CheatDetector.Enabled
             end
         end,
-        Tooltip = 'Makes you go zoom',
-        ExtraText = function()
-            return 'Heatseeker'
-        end
+        Tooltip = 'Alerts for any possible cheaters.'
     })
+    
+    for i in Checks do
+        CheatDetector:CreateToggle({
+            Name = i,
+            Default = true
+        })
+    end
 end)
