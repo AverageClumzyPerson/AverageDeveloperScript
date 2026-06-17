@@ -1,3 +1,4 @@
+--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.
 local run = function(func) func() end
 local cloneref = cloneref or function(obj) return obj end
 
@@ -1272,6 +1273,8 @@ run(function()
 	local PPSRankDropdown
 	local PPSRpSlider
 	local PPSLeaderboardSlider
+	local PPSDecayToggle
+	local PPSDecaySlider
 
 	local lplr = game.Players.LocalPlayer
 	local PP_ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -1322,14 +1325,29 @@ run(function()
 		local isNightmare = rankName == "Nightmare"
 		local fillColor   = PP_RANK_COLORS[getBaseRank(rankName)]
 		local fillScale   = math.clamp(rpValue / 100, 0, 1)
+		
+		local showDecay   = PPSDecayToggle.Enabled
+		local decayAmount = PPSDecaySlider.Value
 
 		for _, v in ipairs(playerGui:GetDescendants()) do
-			if v:IsA("ImageLabel") and PP_RANK_IMAGES[v.Image] then
+			local name = v.Name
+			local isDecayElement = name:lower():find("decay") or (v:IsA("TextLabel") and v.Text:lower():find("decay"))
+
+			if isDecayElement then
+				if showDecay and decayAmount > 0 then
+					v.Visible = true
+					if v:IsA("TextLabel") then
+						v.Text = "-" .. decayAmount .. " RP"
+					end
+				else
+					v.Visible = false
+					if v:IsA("TextLabel") then v.Text = "" end
+				end
+			elseif v:IsA("ImageLabel") and PP_RANK_IMAGES[v.Image] then
 				v.Image = PP_BedwarsImageId[rankKey]
 
 			elseif v:IsA("TextLabel") then
-				local name = v.Name
-				local txt  = v.Text
+				local txt = v.Text
 				if name == "CurrentRP" then
 					if isNightmare then
 						v.Visible = false
@@ -1344,7 +1362,6 @@ run(function()
 				end
 
 			elseif v:IsA("Frame") then
-				local name = v.Name
 				if name == "ProgressBar" then
 					if isNightmare then
 						v.Visible = false
@@ -1381,7 +1398,7 @@ run(function()
 		Function = function(callback)
 			if callback then ppStartLoop() else ppCleanup() end
 		end,
-		Tooltip = "Spoofs rank, RP bar color and leaderboard rank in your profile UI (client sided)"
+		Tooltip = "Spoofs rank, RP bar color, leaderboard rank, and ranked decay in your profile UI (client sided)"
 	})
 
 	PPSRankDropdown = PlayerProfileSpoof:CreateDropdown({
@@ -1404,6 +1421,21 @@ run(function()
 
 	PPSLeaderboardSlider = PlayerProfileSpoof:CreateSlider({
 		Name = "Leaderboard Rank", Min = 1, Max = 10000, Default = 1
+	})
+
+	PPSDecayToggle = PlayerProfileSpoof:CreateToggle({
+		Name = "Show Ranked Decay",
+		Default = false,
+		Tooltip = "Spoofs the ranked decay warning and amount"
+	})
+
+	PPSDecaySlider = PlayerProfileSpoof:CreateSlider({
+		Name = "Decay Amount",
+		Min = 0,
+		Max = 50,
+		Default = 10,
+		Suffix = " RP",
+		Tooltip = "Amount of RP decay to display"
 	})
 end)
 
