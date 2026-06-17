@@ -1,5 +1,6 @@
 --This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.
 --This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.
+--This watermark is used to delete the file if its cached, remove it to make the file persist after vape updates.
 pcall(function()
 	local l = Instance.new("ScreenGui")
 	l.Name = "VapeLoading"
@@ -5021,11 +5022,18 @@ run(function()
 						elseif plr.Jumping then
 							jumpOverride = 38
 						end
+						local targetGravity = 0
+						local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+						if hum and (hum:GetState() == Enum.HumanoidStateType.Freefall or hum:GetState() == Enum.HumanoidStateType.Jumping) then
+							targetGravity = workspace.Gravity
+						end
+						local ping = math.clamp(lplr:GetNetworkPing(), 0.03, 0.25)
+
 						calc = prediction.SolveTrajectory(
 							newlook.p, projSpeed, gravity,
 							aimTarget,
 							solverVelocity,
-							playerGravity, plr.HipHeight, jumpOverride, rayCheck
+							playerGravity, plr.HipHeight, ping, targetGravity
 						)
 						if calc then
 							solveCache[cacheKey] = {t = now, pos = aimTarget, result = calc}
@@ -18596,7 +18604,8 @@ run(function()
 		local offsets = {Vector3.new(0,-1.5,0), Vector3.new(0,0,0), Vector3.new(0,1,0), Vector3.new(0,-3,0)}
 		local calc
 		for _, offset in offsets do
-			calc = prediction.SolveTrajectory(pos, meta.launchVelocity, meta.gravitationalAcceleration, spot + offset, Vector3.zero, workspace.Gravity, 0, 0, nil, false, lplr:GetNetworkPing())
+			local ping = math.clamp(lplr:GetNetworkPing(), 0.03, 0.25)
+			calc = prediction.SolveTrajectory(pos, meta.launchVelocity, meta.gravitationalAcceleration, spot + offset, Vector3.zero, workspace.Gravity, 0, ping, 0)
 			local targetRoot = plr.RootPart
 						if targetRoot then
 							local targetRootVel = targetRoot.AssemblyLinearVelocity or targetRoot.Velocity or Vector3.zero
@@ -31912,47 +31921,29 @@ run(function()
 end)
 
 run(function()
-	local AEGT
-	local E
+    local EmptyGameTP
 
-	local function Reset()
-		if #playersService:GetChildren() == 1 then return end
-		local TeleportService = game:GetService("TeleportService")
-		local data = TeleportService:GetLocalPlayerTeleportData()
-		AEGT:Clean(TeleportService:Teleport(game.PlaceId, lplr, data))
-	end
+    local function Reset()
+        if #playersService:GetChildren() == 1 then return end
+        local TeleportService = game:GetService("TeleportService")
+        local data = TeleportService:GetLocalPlayerTeleportData()
+        EmptyGameTP:Clean(TeleportService:Teleport(game.PlaceId, lplr, data))
+    end
 
-	AEGT = vape.Categories.Utility:CreateModule({
-		Name = 'AutoEmptyGameTP',
-		Function = function(callback)
-			if callback then
-				if E.Enabled then
-					AEGT:Clean(vapeEvents.EntityDeathEvent.Event:Connect(function(deathTable)
-						if deathTable.finalKill and deathTable.entityInstance == lplr.Character and isEveryoneDead() and store.matchState ~= 2 then
-							Reset()
-						end
-					end))
-					AEGT:Clean(vapeEvents.MatchEndEvent.Event:Connect(Reset))
-				else
-					if #playersService:GetChildren() > 1 then
-						vape:CreateNotification("AutoEmptyGameTP", "Teleporting to Empty Game!", 6)
-						task.wait((6 / 3.335))
-						Reset()
-					end
-				end
-			else
-				return
-			end
-		end,
-		Tooltip = 'Makes you automatically TP to a empty game'
-	})
-
-	E = AEGT:CreateToggle({
-		Name = "Game Ended",
-		Default = true,
-		Visible = true,
-		Tooltip = "Makes you TP whenever you win/lose a match causing you to reset the history"
-	})
+    EmptyGameTP = vape.Categories.Utility:CreateModule({
+        Name = 'Empty Game TP',
+        Function = function(callback)
+            if callback then
+                if #playersService:GetChildren() > 1 then
+                    vape:CreateNotification("Empty Game TP", "Teleporting to an empty game!", 6)
+                    task.wait(6 / 3.335)
+                    Reset()
+                end
+                EmptyGameTP:Toggle(false)
+            end
+        end,
+        Tooltip = 'Teleports you to an empty game'
+    })
 end)
 
 pcall(function()
@@ -32557,6 +32548,17 @@ run(function()
     local fastHitsActivationReady = false
     local fastHitsLastHitTime = 0
 
+    -- NEW ENHANCEMENTS
+    local StickyTarget
+    local StickyTargetLock = nil
+    local AutoSprint
+    local Strafe
+    local StrafeSpeed
+    local StrafeDirection = 1
+    local lastStrafeSwitch = 0
+    local HitboxExpand
+    local AutoWeapon
+
     task.spawn(function()
         AttackRemote = bedwars.Client:Get(remotes.AttackEntity).instance
         projectileRemote = bedwars.Client:Get(remotes.FireProjectile).instance
@@ -32564,6 +32566,24 @@ run(function()
 
     local DynamicReach
     local lastOptimizedAttackTime = 0
+
+    local function getBestSword()
+        local bestSword, bestSlot, bestDmg = nil, nil, 0
+        for i, v in pairs(store.inventory.hotbar) do
+            if v.item then
+                local meta = bedwars.ItemMeta[v.item.itemType]
+                if meta and meta.sword then
+                    local dmg = meta.sword.damage or 0
+                    if dmg > bestDmg then
+                        bestDmg = dmg
+                        bestSword = v.item
+                        bestSlot = i - 1
+                    end
+                end
+            end
+        end
+        return bestSword, bestSlot
+    end
 
     local function optimizeHitData(selfpos, targetpos, delta, cameraPosition, cursorDirection)
         if not DynamicReach or not DynamicReach.Enabled then return true end
@@ -32717,6 +32737,13 @@ run(function()
             if bedwars.AppController:isLayerOpen(bedwars.UILayers.MAIN) then return false end
         end
 
+        if AutoWeapon and AutoWeapon.Enabled then
+            local bestSword, bestSlot = getBestSword()
+            if bestSword and bestSlot ~= nil and store.inventory.hotbarSlot ~= bestSlot then
+                hotbarSwitch(bestSlot)
+            end
+        end
+
         local sword = Limit and Limit.Enabled and store.hand or store.tools.sword
         if not sword or not sword.tool then return false end
 
@@ -32833,17 +32860,24 @@ run(function()
         local extPos = chestPos + targetVel * ping
         local lookCF = CFrame.new(selfPos, extPos) * CFrame.new(bowRelX, bowRelY, bowRelZ)
 
-        local calc = prediction.SolveTrajectory(
-            lookCF.p,
-            projSpeed,
-            gravity,
-            extPos,
-            targetVel,
-            playerGravity,
-            ent.HipHeight or 2,
-            ent.Jumping and 42.6 or nil,
-            sharedFastHitsRayParams
-        )
+		local targetGravity = 0
+		local hum = ent.Character and ent.Character:FindFirstChildOfClass("Humanoid")
+		if hum and (hum:GetState() == Enum.HumanoidStateType.Freefall or hum:GetState() == Enum.HumanoidStateType.Jumping) then
+			targetGravity = workspace.Gravity
+		end
+		local ping = math.clamp(lplr:GetNetworkPing(), 0.03, 0.25)
+
+		local calc = prediction.SolveTrajectory(
+			lookCF.p,
+			projSpeed,
+			gravity,
+			extPos,
+			targetVel,
+			playerGravity,
+			ent.HipHeight or 2,
+			ping,
+			targetGravity
+		)
 
         if not calc then return false end
 
@@ -33101,6 +33135,7 @@ run(function()
                 swingCooldown = 0
                 lastTargetTime = 0
                 continueSwingCount = 0
+                StickyTargetLock = nil
                 resetSwordCooldown()
                 if Mouse and LegitAura and Mouse.Enabled and LegitAura.Enabled then
                     Mouse:Toggle(false)
@@ -33264,6 +33299,30 @@ run(function()
                         local _cachedPing = math.clamp(lplr:GetNetworkPing(), 0.03, 0.4)
                         local swingPlrs, attackPlrs = gatherTargets(selfpos)
 
+                        -- STICKY TARGET LOGIC
+                        if StickyTarget and StickyTarget.Enabled and StickyTargetLock then
+                            local isValid = false
+                            for _, v in attackPlrs do
+                                if v == StickyTargetLock then isValid = true break end
+                            end
+                            if not isValid then
+                                StickyTargetLock = nil
+                            end
+                        end
+
+                        if StickyTarget and StickyTarget.Enabled and not StickyTargetLock and #attackPlrs > 0 then
+                            StickyTargetLock = attackPlrs[1]
+                        end
+
+                        if StickyTargetLock then
+                            local filteredAttack = {}
+                            local filteredSwing = {}
+                            for _, v in attackPlrs do if v == StickyTargetLock then table.insert(filteredAttack, v) end end
+                            for _, v in swingPlrs do if v == StickyTargetLock then table.insert(filteredSwing, v) end end
+                            attackPlrs = filteredAttack
+                            swingPlrs = filteredSwing
+                        end
+
                         local hasValidSwingTargets = false
                         local hasValidAttackTargets = false
 
@@ -33296,6 +33355,27 @@ run(function()
 
                         if shouldSwing then
                             switchItem(sword.tool, 0)
+
+                            -- AUTO SPRINT
+                            if AutoSprint and AutoSprint.Enabled then
+                                pcall(function() bedwars.SprintController:startSprinting() end)
+                            end
+
+                            -- STRAFE
+                            if Strafe and Strafe.Enabled then
+                                local now = tick()
+                                if now - lastStrafeSwitch > (1 / (StrafeSpeed.Value * 2)) then
+                                    StrafeDirection = StrafeDirection * -1
+                                    lastStrafeSwitch = now
+                                end
+                                local root = entitylib.character.RootPart
+                                if root then
+                                    local rightVector = root.CFrame.RightVector
+                                    local currentVel = root.AssemblyLinearVelocity
+                                    local strafeVec = rightVector * StrafeDirection * 8
+                                    root.AssemblyLinearVelocity = Vector3.new(currentVel.X + strafeVec.X, currentVel.Y, currentVel.Z + strafeVec.Z)
+                                end
+                            end
 
                             if hasValidAttackTargets then
                                 for _, v in attackPlrs do
@@ -33367,6 +33447,13 @@ run(function()
                                     local dir = CFrame.lookAt(camOrigin, targetPos).LookVector
                                     local spoofedPos = camOrigin + dir * math.max((targetPos - camOrigin).Magnitude - 14.399, 0)
 
+                                    -- HITBOX EXPANSION
+                                    local finalTargetPos = targetPos
+                                    if HitboxExpand and HitboxExpand.Enabled and HitboxExpand.Value > 0 then
+                                        local expandDir = (spoofedPos - targetPos).Unit
+                                        finalTargetPos = targetPos + (expandDir * (HitboxExpand.Value / 10))
+                                    end
+
                                     if SyncHits and SyncHits.Enabled then
                                         if (tick() - swingCooldown) >= math.max(swingSpeed * 0.15, 0.03) then
                                             swingCooldown = tick()
@@ -33401,7 +33488,7 @@ run(function()
                                                     cameraPosition = {value = camOrigin},
                                                     cursorDirection = {value = dir}
                                                 },
-                                                targetPosition = {value = targetPos},
+                                                targetPosition = {value = finalTargetPos},
                                                 selfPosition = {value = spoofedPos}
                                             }
                                         })
@@ -33461,6 +33548,7 @@ run(function()
                 table.clear(ProjectileDelay)
                 table.clear(attacked)
                 store.KillauraTarget = nil
+                StickyTargetLock = nil
                 for _, v in Boxes do v.Adornee = nil end
                 for _, v in Particles do v.Parent = nil end
                 if inputService.TouchEnabled then
@@ -33886,6 +33974,49 @@ run(function()
         Tooltip = 'Stops Killaura when a kit ability is detected (Sophia, etc) or when asleep',
         Function = function(callback) end,
         Default = false
+    })
+
+    -- NEW ENHANCEMENT TOGGLES & SLIDERS
+    StickyTarget = Killaura:CreateToggle({
+        Name = 'Sticky Target',
+        Default = true,
+        Tooltip = 'Locks onto a target until they die or leave range to prevent jitter'
+    })
+    AutoSprint = Killaura:CreateToggle({
+        Name = 'Auto Sprint',
+        Default = true,
+        Tooltip = 'Automatically sprints while in combat'
+    })
+    Strafe = Killaura:CreateToggle({
+        Name = 'Strafe',
+        Default = false,
+        Tooltip = 'Moves left and right while attacking to dodge hits',
+        Function = function(callback)
+            if StrafeSpeed then StrafeSpeed.Object.Visible = callback end
+        end
+    })
+    StrafeSpeed = Killaura:CreateSlider({
+        Name = 'Strafe Speed',
+        Min = 1,
+        Max = 20,
+        Default = 8,
+        Decimal = 10,
+        Visible = false,
+        Suffix = 'hz'
+    })
+    HitboxExpand = Killaura:CreateSlider({
+        Name = 'Hitbox Expand',
+        Min = 0,
+        Max = 3,
+        Default = 0,
+        Decimal = 10,
+        Suffix = 'studs',
+        Tooltip = 'Offsets target position towards you to bypass server distance checks'
+    })
+    AutoWeapon = Killaura:CreateToggle({
+        Name = 'Auto Weapon',
+        Default = false,
+        Tooltip = 'Automatically switches to the highest damage sword in hotbar'
     })
 
     FastHits = Killaura:CreateToggle({
@@ -34500,65 +34631,290 @@ end)
 
 
 run(function()
-    local VulcanAimbot
+    local AutoVulcan
     local Targets
     local Range
-    local Sort
+    local FireRate
+    local ProjSpeed
+    local TargetMode
+    local AutoAim
+    local LagMode
     
-    VulcanAimbot = vape.Categories.Blatant:CreateModule({
-        Name = 'Vulcan Aimbot',
+    local trackedTurrets = {}
+    local lastShots = {}
+    local turretCache = {}
+    
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    rayParams.FilterDescendantsInstances = {lplr.Character, gameCamera}
+    
+    local netManaged = replicatedStorage:FindFirstChild("rbxts_include", true)
+    netManaged = netManaged and netManaged:FindFirstChild("node_modules") and netManaged.node_modules["@rbxts"] and netManaged.node_modules["@rbxts"].net.out._NetManaged
+    
+    local AimTurretRemote = netManaged and netManaged:FindFirstChild("AimTurret")
+    local ProjectileFireRemote = netManaged and netManaged:FindFirstChild("ProjectileFire")
+    local ProjectileHitRemote = netManaged and netManaged:FindFirstChild("ProjectileHit")
+    
+    local charTable = {}
+    for i = 1, 36 do
+        if i <= 10 then charTable[i] = string.char(47 + i)
+        else charTable[i] = string.char(54 + i) end
+    end
+    
+    local function generateId()
+        local id = {}
+        for i = 1, 8 do id[i] = charTable[math.random(1, 36)] end
+        return table.concat(id)
+    end
+    
+    local function addTurret(obj)
+        if obj:IsA("BasePart") and obj.Name == "camera_turret" then
+            if obj:GetAttribute("PlacedByUserId") == lplr.UserId then
+                trackedTurrets[obj] = true
+                lastShots[obj] = 0
+            end
+        end
+    end
+    
+    local function removeTurret(obj)
+        if trackedTurrets[obj] then
+            trackedTurrets[obj] = nil
+            lastShots[obj] = nil
+        end
+    end
+    
+    local function getClosestTarget(origin, rangeSq, sortMethod)
+        local best, bestScore = nil, math.huge
+        local players = Targets.Players.Enabled
+        local npcs = Targets.NPCs.Enabled
+        local walls = Targets.Walls.Enabled
+        local mousePos = sortMethod == "Cursor" and inputService:GetMouseLocation() or nil
+        local localfacing = sortMethod == "Angle" and (entitylib.character.RootPart.CFrame.LookVector * Vector3.new(1, 0, 1)) or nil
+        
+        for _, ent in ipairs(entitylib.List) do
+            if (players and ent.Player) or (npcs and ent.NPC) then
+                if ent.Targetable and ent.RootPart and ent.Health > 0 then
+                    local pos = ent.RootPart.Position
+                    local dx, dy, dz = pos.X - origin.X, pos.Y - origin.Y, pos.Z - origin.Z
+                    local distSq = dx * dx + dy * dy + dz * dz
+                    
+                    if distSq <= rangeSq or sortMethod == "Cursor" then
+                        local valid = true
+                        if walls then
+                            rayParams.FilterDescendantsInstances = {lplr.Character, gameCamera, ent.Character}
+                            if workspace:Raycast(origin, pos - origin, rayParams) then
+                                valid = false
+                            end
+                        end
+                        if valid then
+                            local score = distSq
+                            if sortMethod == "Health" then
+                                score = ent.Health
+                            elseif sortMethod == "Cursor" then
+                                local screenPos, onScreen = gameCamera:WorldToScreenPoint(pos)
+                                if not onScreen then 
+                                    score = math.huge 
+                                else
+                                    score = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                                end
+                            elseif sortMethod == "Threat" then
+                                score = ent.Health
+                            elseif sortMethod == "Angle" then
+                                local flat = (pos - origin) * Vector3.new(1, 0, 1)
+                                if flat.Magnitude > 0.001 and localfacing and localfacing.Magnitude > 0.001 then
+                                    score = math.acos(math.clamp(localfacing.Unit:Dot(flat.Unit), -1, 1))
+                                else
+                                    score = 0
+                                end
+                            end
+                            
+                            if score < bestScore then
+                                bestScore = score
+                                best = ent
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return best
+    end
+
+    AutoVulcan = vape.Categories.Blatant:CreateModule({
+        Name = "AutoVulcan",
         Function = function(callback)
             if callback then
-                repeat
-                    if entitylib.isAlive then
-                        local turret = bedwars.Store:getState().Game.selectedTurret
-                        if turret then
-                            local origin = turret.Rotate.Position
-                            local ent = entitylib.EntityMouse({
-                                Range = Range.Value,
-                                Origin = origin,
-                                Wallcheck = Targets.Walls.Enabled or nil,
-                                Part = 'RootPart',
-                                Players = Targets.Players.Enabled,
-                                NPCs = Targets.NPCs.Enabled,
-                                Sort = sortmethods[Sort.Value]
-                            })
-                            if ent then
-                                local pos = prediction.SolveTrajectory(origin, 320, 10, ent.RootPart.Position, ent.RootPart.Velocity, workspace.Gravity, ent.HipHeight, nil, store.airRay)
-                                if pos then
-                                    local delta = pos - origin
-    
-                                    -- mathing
-                                    bedwars.TurretCameraController.angleX = math.atan2(-delta.X, -delta.Z)
-                                    bedwars.TurretCameraController.angleY = math.clamp(math.atan2(delta.Y, math.sqrt(delta.X^2 + delta.Z^2)), -0.8, 0.8)
+                for _, obj in ipairs(workspace:GetDescendants()) do addTurret(obj) end
+                AutoVulcan:Clean(workspace.DescendantAdded:Connect(addTurret))
+                AutoVulcan:Clean(workspace.DescendantRemoving:Connect(removeTurret))
+                
+                AutoVulcan:Clean(runService.Heartbeat:Connect(function(dt)
+                    if not entitylib.isAlive then return end
+                    local isHoldingTablet = store.hand and store.hand.tool and store.hand.tool.Name and store.hand.tool.Name:lower():find("tablet")
+                    if not isHoldingTablet then return end
+                    
+                    local turretCount = 0
+                    for turret in pairs(trackedTurrets) do
+                        if turret.Parent then
+                            turretCount = turretCount + 1
+                            turretCache[turretCount] = turret
+                        else
+                            removeTurret(turret)
+                        end
+                    end
+                    if turretCount == 0 then return end
+                    
+                    local rangeVal = Range.Value
+                    local rangeSq = rangeVal * rangeVal
+                    local now = os.clock()
+                    local fireDelay = 1 / FireRate.Value
+                    local speedVal = ProjSpeed.Value
+                    local sortVal = TargetMode.Value
+                    
+                    local targetedEntities = {}
+                    
+                    for i = 1, turretCount do
+                        local turret = turretCache[i]
+                        local turretPos = turret.Position
+                        
+                        local target = getClosestTarget(turretPos, rangeSq, sortVal)
+                        
+                        if target and not targetedEntities[target] then
+                            targetedEntities[target] = true
+                            local lastShot = lastShots[turret] or 0
+                            if now - lastShot >= fireDelay then
+                                lastShots[turret] = now
+                                local targetPos = target.RootPart.Position
+                                local targetVel = target.RootPart.AssemblyLinearVelocity or Vector3.zero
+                                local ping = lplr:GetNetworkPing() or 0.1
+                                local dist = math.sqrt((targetPos.X - turretPos.X)^2 + (targetPos.Z - turretPos.Z)^2)
+                                local travelTime = dist / speedVal + ping
+                                local predictedPos = targetPos + targetVel * travelTime
+                                local direction = (predictedPos - turretPos).Unit * speedVal
+                                
+                                if AutoAim.Enabled and AimTurretRemote then
+                                    local cf = CFrame.lookAt(turretPos, predictedPos)
+                                    local rx, ry, rz = cf:ToOrientation()
+                                    pcall(function()
+                                        AimTurretRemote:FireServer({
+                                            angleX = math.deg(ry),
+                                            turretBlockPos = bedwars.BlockController:getBlockPosition(turretPos),
+                                            angleY = math.deg(rx)
+                                        })
+                                    end)
+                                end
+                                
+                                if ProjectileFireRemote and ProjectileHitRemote then
+                                    local weaponId = generateId()
+                                    local shotId = generateId()
+                                    local shootPos = turretPos
+                                    if LagMode.Enabled then
+                                        shootPos = turretPos + Vector3.new(math.random(-5, 5) * 0.1, math.random(-5, 5) * 0.1, math.random(-5, 5) * 0.1)
+                                    end
+                                    pcall(function()
+                                        ProjectileFireRemote:InvokeServer(turret, nil, "turretBullet", shootPos, predictedPos, direction, weaponId, {shotId = shotId, drawDurationSec = 0}, workspace:GetServerTimeNow())
+                                        ProjectileHitRemote:FireServer(weaponId)
+                                    end)
                                 end
                             end
                         end
                     end
-                    task.wait(0.1)
-                until not VulcanAimbot.Enabled
+                    for i = 1, turretCount do turretCache[i] = nil end
+                end))
+            else
+                table.clear(trackedTurrets)
+                table.clear(lastShots)
+                table.clear(turretCache)
             end
         end,
-        Tooltip = 'Automatically aims ur camera toward opponents.'
+        Tooltip = "Hyper-optimized autonomous turret sentry"
     })
     
-    Targets = VulcanAimbot:CreateTargets({Walls = true, Players = true})
-    local methods = {'Distance', 'Damage'}
-    for i in sortmethods do
-        if not table.find(methods, i) then
-            table.insert(methods, i)
-        end
-    end
-    Sort = VulcanAimbot:CreateDropdown({
-        Name = 'Target mode',
-        List = methods,
-        Default = methods[1]
+    Targets = AutoVulcan:CreateTargets({
+        Players = true,
+        NPCs = true,
+        Walls = true
     })
-    Range = VulcanAimbot:CreateSlider({
-        Name = 'Range',
+    
+    Range = AutoVulcan:CreateSlider({
+        Name = "Range",
+        Min = 10,
+        Max = 500,
+        Default = 200,
+        Suffix = function(val) return val == 1 and "stud" or "studs" end
+    })
+    
+    FireRate = AutoVulcan:CreateSlider({
+        Name = "Fire Rate",
         Min = 1,
-        Max = 1000,
-        Default = 500
+        Max = 30,
+        Default = 15,
+        Suffix = "hz"
+    })
+    
+    ProjSpeed = AutoVulcan:CreateSlider({
+        Name = "Projectile Speed",
+        Min = 100,
+        Max = 320,
+        Default = 300,
+        Suffix = "studs/s"
+    })
+    
+    TargetMode = AutoVulcan:CreateDropdown({
+        Name = "Target Mode",
+        List = {"Distance", "Health", "Cursor", "Threat", "Angle"},
+        Default = "Distance"
+    })
+    
+    AutoAim = AutoVulcan:CreateToggle({
+        Name = "Auto Aim",
+        Default = true
+    })
+    
+    LagMode = AutoVulcan:CreateToggle({
+        Name = "Anti-Spatial Lag",
+        Default = true,
+        Tooltip = "Jitters shoot origin to prevent server physics choke"
+    })
+end)
+
+run(function()
+    local PickupTurret
+    local netManaged = replicatedStorage:FindFirstChild("rbxts_include", true)
+    netManaged = netManaged and netManaged:FindFirstChild("node_modules") and netManaged.node_modules["@rbxts"] and netManaged.node_modules["@rbxts"].net.out._NetManaged
+    local TakeBackRemote = netManaged and netManaged:FindFirstChild("TakeBackCameraTurret")
+
+    local function findTurretPos()
+        for _, obj in pairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and obj.Name == "camera_turret" then
+                if obj:GetAttribute("PlacedByUserId") == lplr.UserId then
+                    return bedwars.BlockController:getBlockPosition(obj.Position)
+                end
+            end
+        end
+        return nil
+    end
+
+    PickupTurret = vape.Categories.Utility:CreateModule({
+        Name = 'Pickup Turret',
+        Function = function(callback)
+            if not callback then return end
+            PickupTurret:Toggle(false)
+            if TakeBackRemote then
+                local blockPos = findTurretPos()
+                if blockPos then
+                    pcall(function()
+                        TakeBackRemote:FireServer({
+                            turretBlockPos = blockPos
+                        })
+                    end)
+                    vape:CreateNotification('Pickup Turret', 'Picked up turret from anywhere!', 3)
+                else
+                    vape:CreateNotification('Pickup Turret', 'No turret found to pick up.', 3)
+                end
+            end
+        end,
+        Tooltip = 'Picks up your Vulcan camera turret from anywhere on the map'
     })
 end)
 
@@ -34595,111 +34951,160 @@ end)
 
 run(function()
     local CheatDetector
+    local CheatersFlagged = {}
+    local AttackData = {}
+    local Strikes = {}
     
+    local ToggleStates = {
+        Killaura = true,
+        Reach = true,
+        Invisible = true,
+        HighJump = true,
+        Phase = true
+    }
+
     local function Added(player, reason)
         if not CheatersFlagged[player] then
             CheatersFlagged[player] = true
-            whitelist.customtags[player.Name] = {{ text = 'CHEATER', color = Color3.new(1, 0, 0)}}
-            notif('CheatDetector', `{player.Name} flagged for {reason:lower()}ing`, 10, 'info')
+            if whitelist and whitelist.customtags then
+                whitelist.customtags[player.Name] = {{ text = 'CHEATER', color = Color3.new(1, 0, 0)}}
+            end
+            notif('CheatDetector', string.format('%s flagged for %s', player.Name, reason:lower()), 10, 'alert')
         end
     end
-    local function checkPoint(pos, params)
-        for _, v in workspace:GetPartBoundsInRadius(pos, 0, params) do
-            if v.CanCollide and (v:GetClosestPointOnSurface(pos) - pos).Magnitude <= 0 then
-                return false
+
+    local rayParams = RaycastParams.new()
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    
+    local function checkPhase(rootPos, char)
+        rayParams.FilterDescendantsInstances = {char, lplr.Character, gameCamera}
+        local directions = {
+            Vector3.new(2, 0, 0), Vector3.new(-2, 0, 0),
+            Vector3.new(0, 0, 2), Vector3.new(0, 0, -2),
+            Vector3.new(0, 2, 0)
+        }
+        for _, dir in ipairs(directions) do
+            local result = workspace:Raycast(rootPos, dir, rayParams)
+            if result and result.Instance and result.Instance.CanCollide and not result.Instance:IsDescendantOf(char) then
+                local dist = (result.Position - rootPos).Magnitude
+                if dist < 1.5 then 
+                    return true 
+                end
             end
         end
-    
-        return true
+        return false
     end
-    
-    local overlap = OverlapParams.new()
-    overlap.FilterDescendantsInstances = {workspace.Map}
-    overlap.FilterType = Enum.RaycastFilterType.Include
-    
-    local Checks = {
-        Killaura = function()
-            local AttackData = {}
-            local Strikes = {}
-    
-            CheatDetector:Clean(shared.bindable.Event:Connect(function(damageTable)
-                if damageTable.damageType == 0 and damageTable.fromEntity then
-                    local from = playersService:GetPlayerFromCharacter(damageTable.fromEntity)
-    
-                    if from and from ~= lplr then
-                        local lastHit = (os.clock() - (AttackData[from] or 0))
-                        if lastHit <= 0.28 then
-                            Strikes[from] = (Strikes[from] or 0) + 1
-    
-                            task.delay(60, function()
-                                pcall(function()
-                                    Strikes[from] -= 1
-                                end)
-                            end)
-    
-                            if Strikes[from] > 2 then
-                                Added(from, 'Killaura')
+
+    local function setupEventChecks()
+        local damageConn = vapeEvents.EntityDamageEvent.Event:Connect(function(damageTable)
+            if damageTable.damageType == 0 and damageTable.fromEntity then
+                local fromPlayer = playersService:GetPlayerFromCharacter(damageTable.fromEntity)
+                if fromPlayer and fromPlayer ~= lplr and not CheatersFlagged[fromPlayer] then
+                    local entityInstance = damageTable.entityInstance
+                    local fromRoot = damageTable.fromEntity.PrimaryPart or damageTable.fromEntity:FindFirstChild("HumanoidRootPart")
+                    local toRoot = entityInstance and (entityInstance.PrimaryPart or entityInstance:FindFirstChild("HumanoidRootPart"))
+                    
+                    if fromRoot and toRoot then
+                        
+                        if ToggleStates.Reach then
+                            local magnitude = (fromRoot.Position - toRoot.Position).Magnitude
+                            local ping = lplr:GetNetworkPing() or 0.1
+                            if magnitude > (18 + (ping * 12)) then 
+                                Added(fromPlayer, 'Reach')
                             end
                         end
-    
-                        AttackData[from] = os.clock()
-                    end
-                end
-            end))
-        end,
-        Reach = function()
-            CheatDetector:Clean(shared.bindable.Event:Connect(function(damageTable)
-                if damageTable.damageType == 0 and damageTable.fromEntity then
-                    local magnitude = (damageTable.fromEntity.PrimaryPart.Position - damageTable.entityInstance.PrimaryPart.Position).Magnitude
-                    if magnitude > (18 + lplr:GetNetworkPing()) then
-                        local player = playersService:GetPlayerFromCharacter(damageTable.fromEntity)
-                        if player and player ~= lplr then
-                            Added(player, 'Reach')
+
+                        
+                        if ToggleStates.Killaura then
+                            local lastHit = os.clock() - (AttackData[fromPlayer] or 0)
+                            if lastHit <= 0.25 then 
+                                Strikes[fromPlayer] = (Strikes[fromPlayer] or 0) + 1
+                                task.delay(10, function()
+                                    if Strikes[fromPlayer] then
+                                        Strikes[fromPlayer] = math.max(0, Strikes[fromPlayer] - 1)
+                                    end
+                                end)
+                                if Strikes[fromPlayer] > 3 then
+                                    Added(fromPlayer, 'Killaura')
+                                end
+                            end
+                            AttackData[fromPlayer] = os.clock()
                         end
                     end
                 end
-            end))
-        end,
-        Invisible = function() end,
-        HighJump = function() end,
-        Phase = function() end
-    }
-    
+            end
+        end)
+        
+        if CheatDetector then
+            CheatDetector:Clean(damageConn)
+        end
+    end
+
     CheatDetector = vape.Categories.Utility:CreateModule({
         Name = 'Cheat Detector',
         Function = function(callback)
             if callback then
-                for i, v in Checks do
-                    if CheatDetector.Options and CheatDetector.Options[i].Enabled then
-                        task.spawn(v)
-                    end
-                end
-    
-                repeat
-                    for _, v in entitylib.List do
-                        if v.Player and v.Player ~= lplr and v.Health > 0 and not CheatersFlagged[v.Player] then
-                            if CheatDetector.Options.Invisible.Enabled and (v.RootPart.Position - v.Head.Position).Magnitude > 5 then
-                                Added(v.Player, 'Invisible')
-                            end
-                            if CheatDetector.Options.HighJump.Enabled and v.RootPart.AssemblyLinearVelocity.Y > 80 then
-                                Added(v.Player, 'HighJump')
-                            end
-                            if CheatDetector.Options.Phase.Enabled and not checkPoint(v.Head.Position, overlap) then
-                                Added(v.Player, 'Phas')
+                table.clear(CheatersFlagged)
+                table.clear(AttackData)
+                table.clear(Strikes)
+                
+                setupEventChecks()
+
+                local frameCounter = 0
+                local heartbeatConn = runService.Heartbeat:Connect(function(dt)
+                    frameCounter = frameCounter + 1
+                    
+                    
+                    local runExpensiveChecks = (frameCounter % 30 == 0)
+
+                    for _, ent in ipairs(entitylib.List) do
+                        if ent.Player and ent.Player ~= lplr and ent.Health > 0 and not CheatersFlagged[ent.Player] then
+                            local char = ent.Character
+                            local root = ent.RootPart
+                            local head = char and char:FindFirstChild("Head")
+                            
+                            if root and head and char then
+                                
+                                if ToggleStates.Invisible then
+                                    local headDist = (root.Position - head.Position).Magnitude
+                                    if headDist > 4.5 then
+                                        Added(ent.Player, 'Invisible')
+                                    end
+                                end
+
+                                
+                                if ToggleStates.HighJump then
+                                    local yVel = root.AssemblyLinearVelocity.Y
+                                    if yVel > 85 then 
+                                        Added(ent.Player, 'HighJump')
+                                    end
+                                end
+
+                                
+                                if ToggleStates.Phase and runExpensiveChecks then
+                                    if checkPhase(root.Position, char) then
+                                        Added(ent.Player, 'Phase')
+                                    end
+                                end
                             end
                         end
                     end
-                    task.wait(0.1)
-                until not CheatDetector.Enabled
+                end)
+                
+                CheatDetector:Clean(heartbeatConn)
             end
         end,
         Tooltip = 'Alerts for any possible cheaters.'
     })
+
     
-    for i in Checks do
+    for name, defaultState in pairs(ToggleStates) do
         CheatDetector:CreateToggle({
-            Name = i,
-            Default = true
+            Name = name,
+            Default = defaultState,
+            Function = function(state)
+                ToggleStates[name] = state
+            end
         })
     end
 end)
