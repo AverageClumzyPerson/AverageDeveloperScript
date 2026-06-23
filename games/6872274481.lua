@@ -30584,15 +30584,24 @@ run(function()
     local Area
     local LegitAura
     local Mouse
-    local NoSwing
     local Limit
     local SilentAim
     local SwingTime
     local Perfect
+    local HitChance
+    local RandomDelay
+    local MinDelay
+    local MaxDelay
+    local FOV
     
     local Show
     local Targetcolor
     local Attackcolor
+    
+    -- tracks the last time silent aura sent an attack to prevent double hits
+    local lastSilentAttack = 0
+    local suppressedSwing = false
+    local oldSwingFunc = nil
     
     local function getAttackData()
         if not entitylib.isAlive then
@@ -30639,10 +30648,8 @@ run(function()
             for _, v in cache[ent.Character] do
                 if v and v.Parent and v:IsA('BasePart') then
                     local position, vis = gameCamera.WorldToViewportPoint(gameCamera, v.Position)
-    
                     if vis then
                         local mag = (localPosition - Vector2.new(position.x, position.y)).Magnitude
-    
                         if mag < magnitude then
                             magnitude = mag
                             part = v
@@ -30662,9 +30669,29 @@ run(function()
     end
     
     local function findAim(localcframe, ent, fps, started)
-        local prog, rng = ease(math.min((tick() - started) / (1 / (Speed.Value * 0.5)), 1)), Random.new()
+        local prog = ease(math.min((tick() - started) / (1 / (Speed.Value * 0.5)), 1))
         local speed = Speed.Value * prog
-        return localcframe:Lerp(CFrame.lookAt(localcframe.p, getAim(ent) + Vector3.new((rng:NextNumber() - 0.5) * 15 * fps, (rng:NextNumber() - 0.5) * 15 * fps, (rng:NextNumber() - 0.5) * 15 * fps)), speed * fps), speed
+        -- reduced noise for more legit looking aim (was 15, now scaled by speed for humanization)
+        local noiseScale = 2 + (1 - prog) * 3
+        local rng = Random.new()
+        local noise = Vector3.new(
+            (rng:NextNumber() - 0.5) * noiseScale * fps,
+            (rng:NextNumber() - 0.5) * noiseScale * fps * 0.5,
+            (rng:NextNumber() - 0.5) * noiseScale * fps
+        )
+        return localcframe:Lerp(CFrame.lookAt(localcframe.p, getAim(ent) + noise), speed * fps), speed
+    end
+    
+    -- checks if a target is within the FOV circle on screen
+    local function isInFOV(ent)
+        if FOV.Value >= 360 then return true end
+        local pos, vis = gameCamera:WorldToViewportPoint(ent.RootPart.Position)
+        if not vis then return false end
+        local mousePos = inputService:GetMouseLocation()
+        local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+        local screenDiag = math.sqrt(gameCamera.ViewportSize.X^2 + gameCamera.ViewportSize.Y^2)
+        local fovRadius = (FOV.Value / 360) * screenDiag
+        return dist <= fovRadius
     end
     
     local box = Instance.new('BoxHandleAdornment')
@@ -30682,7 +30709,22 @@ run(function()
                 local lastent, lastfound = nil, 0
                 local foundat = tick()
                 local lastattacked = tick()
-    
+                local nextAttackAt = tick()
+                
+                -- hook swingSwordAtMouse to suppress the game's normal attack when silent aura just attacked
+                -- this fixes the double hit bug where both silent aura and manual swing send attacks
+                if bedwars.SwordController and bedwars.SwordController.swingSwordAtMouse and not oldSwingFunc then
+                    oldSwingFunc = bedwars.SwordController.swingSwordAtMouse
+                    bedwars.SwordController.swingSwordAtMouse = function(self, ...)
+                        -- if silent aura attacked within the last 0.08s, suppress the game's attack
+                        if (tick() - lastSilentAttack) < 0.08 then
+                            suppressedSwing = true
+                            return
+                        end
+                        return oldSwingFunc(self, ...)
+                    end
+                end
+                
                 SilentAura:Clean(runService.PostSimulation:Connect(function(dt)
                     if entitylib.isAlive and tick() - lastfound < 0.5 then
                         targetinfo.Targets[lastent] = tick() + 0.5
@@ -30697,7 +30739,7 @@ run(function()
                         entitylib.character.Humanoid.AutoRotate = true
                     end
                 end))
-    
+                
                 local frames = 9e9
                 repeat
                     task.wait()
@@ -30719,6 +30761,13 @@ run(function()
                         box.Transparency = 1 - Slider.Opacity
                         box.Color3 = Color3.fromHSV(Slider.Hue, Slider.Sat, Slider.Value)
                         if ent then
+                            -- FOV check - skip target if outside FOV circle
+                            if not isInFOV(ent) then
+                                lastfound = 0
+                                frames = 0
+                                continue
+                            end
+                            
                             if not store.hand or store.hand.tool ~= sword.tool then
                                 local hotbar = getHotbar(sword.tool)
                                 if hotbar then
@@ -30739,6 +30788,7 @@ run(function()
                                 continue
                             end
     
+                            -- swing visual (not the attack) - only if not in swing-only mode
                             if not LegitAura.Enabled and (tick() - bedwars.SwordController.lastSwing) >= (Perfect.Enabled and (meta.sword.attackSpeed or 0.11) or math.max(SwingTime.Value, 0.11)) then
                                 bedwars.SwordController:playSwordEffect(meta, false)
                                 bedwars.SwordController.lastSwing = tick()
@@ -30749,13 +30799,36 @@ run(function()
                             end
                             lastent, lastfound = ent, tick()
     
+                            -- only send attack when within actual sword range
                             if delta.Magnitude > bedwars.CombatConstant.RAYCAST_SWORD_CHARACTER_DISTANCE then
                                 continue
                             end
+                            
+                            -- hit chance check - randomly skip attacks for legitimacy
+                            if Random.new():NextNumber() * 100 > HitChance.Value then
+                                continue
+                            end
+                            
+                            -- random delay check - add humanized delay between attacks
+                            if tick() < nextAttackAt then
+                                continue
+                            end
+                            
                             lastattacked = tick()
+                            
+                            -- schedule next attack with random delay for humanization
+                            if RandomDelay.Enabled then
+                                local delay = MinDelay.Value + Random.new():NextNumber() * (MaxDelay.Value - MinDelay.Value)
+                                nextAttackAt = tick() + delay
+                            else
+                                nextAttackAt = tick()
+                            end
     
                             local dir = CFrame.lookAt(localPosition, ent.RootPart.Position).LookVector
                             local pos = localPosition + dir * math.max(delta.Magnitude - 14.4, 0)
+                            
+                            -- mark that silent aura is sending an attack so the hooked swingSwordAtMouse suppresses the game's duplicate
+                            lastSilentAttack = tick()
                             bedwars.SwordController.lastAttack = workspace:GetServerTimeNow()
                             bedwars.Client:Get(remotes.AttackEntity):SendToServer({
                                 weapon = sword.tool,
@@ -30787,9 +30860,15 @@ run(function()
                     entitylib.character.Humanoid.AutoRotate = true
                 end
                 box.Adornee = nil
+                -- restore original swingSwordAtMouse when disabled
+                if oldSwingFunc and bedwars.SwordController then
+                    bedwars.SwordController.swingSwordAtMouse = oldSwingFunc
+                    oldSwingFunc = nil
+                end
+                lastSilentAttack = 0
             end
         end,
-        Tooltip = 'Automatically aims and attacks nearby target',
+        Tooltip = 'Legit silent aimbot - attacks nearby targets without looking obvious',
     })
     
     Targets = SilentAura:CreateTargets({
@@ -30800,9 +30879,9 @@ run(function()
         Name = 'Aim speed',
         Min = 1,
         Max = 10,
-        Default = 6,
+        Default = 4,
         Decimal = 5,
-        Tooltip = 'How fast the Aura is going to aim',
+        Tooltip = 'How fast the Aura aims (lower = more legit)',
     })
     SwingTime = SilentAura:CreateSlider({
         Name = 'Swing time',
@@ -30829,6 +30908,21 @@ run(function()
         Min = 1,
         Max = 360,
         Default = 180,
+    })
+    FOV = SilentAura:CreateSlider({
+        Name = 'FOV',
+        Min = 30,
+        Max = 360,
+        Default = 180,
+        Tooltip = 'Only attack targets within this FOV circle on your screen',
+    })
+    HitChance = SilentAura:CreateSlider({
+        Name = 'Hit Chance',
+        Min = 50,
+        Max = 100,
+        Default = 95,
+        Suffix = '%',
+        Tooltip = 'Chance to actually hit (lower = more legit, will randomly miss)',
     })
     local methods = {'Damage', 'Distance'}
     for i in sortmethods do
@@ -30859,9 +30953,20 @@ run(function()
     })
     Mouse = SilentAura:CreateToggle({Name = 'Require mouse down'})
     LegitAura = SilentAura:CreateToggle({Name = 'Swing only'})
+    RandomDelay = SilentAura:CreateToggle({
+        Name = 'Random Delay',
+        Default = false,
+        Tooltip = 'Add random delay between hits for more human behavior',
+        Function = function(callback)
+            pcall(function()
+                MinDelay.Object.Visible = callback
+                MaxDelay.Object.Visible = callback
+            end)
+        end,
+    })
     SilentAim = SilentAura:CreateToggle({
         Name = 'Silent Aim',
-        Tooltip = 'Uses catvape\'s aiming technology to silently aim while looking legit',
+        Tooltip = 'Silently aims at target while looking legit',
         Default = true,
         Function = function(callback)
             Area.Object.Visible = not callback
@@ -30889,6 +30994,24 @@ run(function()
         DefaultOpacity = 0.5,
     })
     Limit = SilentAura:CreateToggle({Name = 'Limit to items'})
+    MinDelay = SilentAura:CreateSlider({
+        Name = 'Min delay',
+        Min = 0,
+        Max = 0.3,
+        Default = 0.05,
+        Decimal = 100,
+        Darker = true,
+        Visible = false,
+    })
+    MaxDelay = SilentAura:CreateSlider({
+        Name = 'Max delay',
+        Min = 0.05,
+        Max = 0.5,
+        Default = 0.15,
+        Decimal = 100,
+        Darker = true,
+        Visible = false,
+    })
 end)
 
 
