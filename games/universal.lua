@@ -155,7 +155,7 @@ end
 
 local function getTableSize(tab)
         local ind = 0
-        for _ in tab do ind += 1 end
+        for _ in tab do ind = ind + 1 end
         return ind
 end
 
@@ -315,7 +315,7 @@ SpeedMethods = {
                                 dest = ((ray.Position + ray.Normal) - root.Position)
                         end
                 end
-                root.CFrame += dest
+                root.CFrame = root.CFrame + dest
         end,
         TP = function(options, moveDirection)
                 if options.TPTiming < tick() then
@@ -413,7 +413,7 @@ entitylib.start()
                         else
                                 local start = math.max(Value.Value - entitylib.character.Humanoid.JumpHeight, 0)
                                 repeat
-                                        root.CFrame += Vector3.new(0, start * 0.016, 0)
+                                        root.CFrame = root.CFrame + Vector3.new(0, start * 0.016, 0)
                                         start = start - (workspace.Gravity * 0.016)
                                         if Mode.Value == 'CFrame' then
                                                 task.wait()
@@ -462,7 +462,6 @@ entitylib.start()
                 Name = 'Auto Disable',
                 Default = true
         })
-end)
 run(function()
         local Invisible
         local clone, oldroot, hip, valid
@@ -621,7 +620,6 @@ run(function()
                 end,
                 Tooltip = 'Turns you invisible.'
         })
-end)
         local StudLimit = {Object = {}}
         local rayCheck = RaycastParams.new()
         rayCheck.RespectCanCollide = true
@@ -800,13 +798,13 @@ run(function()
                                                                                 entitylib.character.Humanoid:ChangeState(Enum.HumanoidStateType.Climbing)
                                                                         end
         
-                                                                        root.Velocity *= Vector3.new(1, 0, 1)
+                                                                        root.Velocity = root.Velocity * Vector3.new(1, 0, 1)
                                                                         if Mode.Value == 'CFrame' then
-                                                                                root.CFrame += Vector3.new(0, Value.Value * dt, 0)
+                                                                                root.CFrame = root.CFrame + Vector3.new(0, Value.Value * dt, 0)
                                                                         elseif Mode.Value == 'Impulse' then
                                                                                 root:ApplyImpulse(Vector3.new(0, Value.Value, 0) * root.AssemblyMass)
                                                                         else
-                                                                                root.Velocity += Vector3.new(0, Value.Value, 0)
+                                                                                root.Velocity = root.Velocity + Vector3.new(0, Value.Value, 0)
                                                                         end
                                                                 end
                                                         end
@@ -1160,7 +1158,7 @@ run(function()
                                                                 factor = 40
                                                         end
         
-                                                        ang += factor % 360
+                                                        ang = ang + factor % 360
                                                         vec = vec == vec and vec or Vector3.zero
                                                         TargetStrafeVector = vec
                                                 else
@@ -1322,22 +1320,24 @@ run(function()
         end
         
         local function Loop()
-                for ent, arrow in Reference do
-                        if Distance.Enabled then
-                                local distance = entitylib.isAlive and (entitylib.character.RootPart.Position - ent.RootPart.Position).Magnitude or math.huge
-                                if distance < DistanceLimit.ValueMin or distance > DistanceLimit.ValueMax then
-                                        arrow.Visible = false
-                                        continue
+                        for ent, arrow in Reference do
+                                local _skip = false
+                                if Distance.Enabled then
+                                        local distance = entitylib.isAlive and (entitylib.character.RootPart.Position - ent.RootPart.Position).Magnitude or math.huge
+                                        if distance < DistanceLimit.ValueMin or distance > DistanceLimit.ValueMax then
+                                                arrow.Visible = false
+                                                _skip = true
+                                        end
+                                end
+                                if not _skip then
+                                        local _, rootVis = gameCamera:WorldToScreenPoint(ent.RootPart.Position)
+                                        arrow.Visible = not rootVis
+                                        if not rootVis then
+                                                local dir = CFrame.lookAlong(gameCamera.CFrame.Position, gameCamera.CFrame.LookVector * V3_XZ):PointToObjectSpace(ent.RootPart.Position)
+                                                arrow.Rotation = math.deg(math.atan2(dir.Z, dir.X))
+                                        end
                                 end
                         end
-        
-                        local _, rootVis = gameCamera:WorldToScreenPoint(ent.RootPart.Position)
-                        arrow.Visible = not rootVis
-                        if rootVis then continue end
-        
-                        local dir = CFrame.lookAlong(gameCamera.CFrame.Position, gameCamera.CFrame.LookVector * V3_XZ):PointToObjectSpace(ent.RootPart.Position)
-                        arrow.Rotation = math.deg(math.atan2(dir.Z, dir.X))
-                end
         end
         
         Arrows = vape.Categories.Render:CreateModule({
@@ -2475,7 +2475,6 @@ run(function()
                 end,
                 Tooltip = 'Displays your health in the center of your screen.'
         })
-end)
         local Radar
         local Targets
         local DotStyle
@@ -2835,7 +2834,7 @@ run(function()
                         self.Objects[name] = {Function = func, Saved = saved, Value = startvalue or 0, Index = getTableSize(self.Objects) + 2}
                         return {
                                 Increment = function(_, val)
-                                        self.Objects[name].Value += (val or 1)
+                                        self.Objects[name].Value = self.Objects[name].Value + (val or 1)
                                 end,
                                 Get = function()
                                         return self.Objects[name].Value
@@ -3140,7 +3139,6 @@ run(function()
                 Max = 2,
                 Decimal = 10
         })
-end)
         local Lines
         local Mode
         local Delay
@@ -3236,7 +3234,6 @@ run(function()
                 end,
                 Tooltip = 'Disables all currently enabled modules'
         })
-end)
         vape.Categories.World:CreateModule({
                 Name = 'AntiAFK',
                 Function = function(callback)
@@ -3355,7 +3352,7 @@ run(function()
                                                         if Mode.Value == 'Impulse' then
                                                                 root:ApplyImpulse(Vector3.new(0, dt * (workspace.Gravity - Value.Value), 0) * root.AssemblyMass)
                                                         else
-                                                                root.AssemblyLinearVelocity += Vector3.new(0, dt * (workspace.Gravity - Value.Value), 0)
+                                                                root.AssemblyLinearVelocity = root.AssemblyLinearVelocity + Vector3.new(0, dt * (workspace.Gravity - Value.Value), 0)
                                                         end
                                                 end
                                         end))
@@ -4197,7 +4194,7 @@ run(function()
                                 local frameCount = 0
                                 local lastSecondTick = tick()
                                 FPS:Clean(runService.Heartbeat:Connect(function()
-                                        frameCount += 1
+                                        frameCount = frameCount + 1
                                         local now = tick()
                                         local elapsed = now - lastSecondTick
                                         if elapsed >= 1 then
