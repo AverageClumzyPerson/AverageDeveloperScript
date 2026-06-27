@@ -157,20 +157,6 @@ local ASSETS_NEW = {
 	'friendstab.png', 'expandup.png', 'expandright.png',
 	'guiicon.png', 'settingsicon.png', 'checkbox.png', 'barlogo.png'
 }
-local ASSETS_OLD = {
-	'worldicon.png', 'utilityicon.png', 'textvape.png', 'textv4.png',
-	'textguiicon.png', 'targetinfoicon.png', 'settingsicon.png',
-	'search.png', 'rendericon.png', 'profilesicon.png', 'pin.png',
-	'info.png', 'guiicon.png', 'friendsicon.png', 'combaticon.png',
-	'checkbox.png', 'blatanticon.png', 'barlogo.png'
-}
-local ASSETS_RISE = {
-	'productsans.json', 'Icon-3.ttf', 'Icon-1.ttf', 'slice.png',
-	'SF-Pro-Rounded-Regular.otf', 'SF-Pro-Rounded-Medium.otf', 'SF-Pro-Rounded-Light.otf'
-}
-local ASSETS_WURST = {
-	'wurst_128.png', 'triangle.png'
-}
 
 if not isfile('newvape/profiles/gui.txt') then
 	writefile('newvape/profiles/gui.txt', 'new')
@@ -181,10 +167,10 @@ if not isfolder('newvape/assets/' .. gui) then
 	makefolder('newvape/assets/' .. gui)
 end
 
-for _, name in ipairs(ASSETS_NEW) do pcall(downloadFile, 'newvape/assets/new/' .. name) end
-for _, name in ipairs(ASSETS_OLD) do pcall(downloadFile, 'newvape/assets/old/' .. name) end
-for _, name in ipairs(ASSETS_RISE) do pcall(downloadFile, 'newvape/assets/rise/' .. name) end
-for _, name in ipairs(ASSETS_WURST) do pcall(downloadFile, 'newvape/assets/wurst/' .. name) end
+-- only the new GUI assets, non-blocking
+task.spawn(function()
+	for _, name in ipairs(ASSETS_NEW) do pcall(downloadFile, 'newvape/assets/new/' .. name) end
+end)
 
 local guiSource = downloadFile('newvape/guis/' .. gui .. '.lua')
 local guiFunc, guiErr = _realLoadstring(guiSource, 'gui')
