@@ -8,14 +8,14 @@ local delfile = delfile or function(file)
 	writefile(file, '')
 end
 
--- Create folders first
+
 for _, folder in {'newvape', 'newvape/games', 'newvape/profiles', 'newvape/assets', 'newvape/libraries', 'newvape/guis'} do
 	if not isfolder(folder) then
 		makefolder(folder)
 	end
 end
 
--- Write a fallback commit.txt immediately so downloadFile never errors on missing file
+
 if not isfile('newvape/profiles/commit.txt') then
 	writefile('newvape/profiles/commit.txt', 'main')
 end
