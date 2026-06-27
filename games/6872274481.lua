@@ -33612,8 +33612,8 @@ run(function()
         end)
     end
 
-    -- main module
-    Killaura = StudioLocalscript.Categories.Blatant:CreateModule({
+    
+    Killaura = vape.Categories.Blatant:CreateModule({
         Name = 'Killaura',
         Function = function(cb)
             if cb then
