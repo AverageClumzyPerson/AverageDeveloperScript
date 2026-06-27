@@ -34504,6 +34504,196 @@ run(function()
     })
 end)
 
+
+run(function()
+    local AutoPearl, LimitItems, HandCheck
+
+    local projectileRemote = {InvokeServer = function() end}
+    task.spawn(function()
+        projectileRemote = bedwars.Client:Get(remotes.FireProjectile).instance
+    end)
+
+    local scanParams = RaycastParams.new()
+    scanParams.FilterType = Enum.RaycastFilterType.Exclude
+
+    local function getPearlSlot()
+        for i, v in store.inventory.hotbar do
+            if v.item and v.item.itemType == 'telepearl' then
+                return i - 1, v.item
+            end
+        end
+        return nil, nil
+    end
+
+    local function isHoldingPearl()
+        if not entitylib.isAlive then return false end
+        local hand = store.inventory and store.inventory.inventory and store.inventory.inventory.hand
+        return hand and hand.itemType == 'telepearl'
+    end
+
+    local function throwPearl(origin, target, pearlTool)
+        local meta = bedwars.ProjectileMeta.telepearl
+        if not meta then return false end
+
+        local ping = math.clamp(lplr:GetNetworkPing(), 0.03, 0.15)
+        local offsets = {0, 0.5, 1.0}
+        local calc, usedSpot
+
+        for _, yOff in offsets do
+            local trySpot = target + Vector3.new(0, yOff, 0)
+            calc = prediction.SolveTrajectory(
+                origin,
+                meta.launchVelocity,
+                meta.gravitationalAcceleration,
+                trySpot,
+                Vector3.zero,
+                workspace.Gravity,
+                0, 0, nil, false,
+                ping
+            )
+            if calc then
+                usedSpot = trySpot
+                break
+            end
+        end
+
+        if not calc then return false end
+
+        local dir = CFrame.lookAt(origin, calc).LookVector * meta.launchVelocity
+
+        projectileRemote:InvokeServer(
+            pearlTool,
+            'telepearl',
+            'telepearl',
+            origin,
+            origin,
+            dir,
+            httpService:GenerateGUID(true),
+            {drawDurationSeconds = 1, shotId = httpService:GenerateGUID(false)},
+            workspace:GetServerTimeNow() - ping
+        )
+        return true
+    end
+
+    local function isValidSpot(pos, params)
+        -- head clearance check
+        local headUp = workspace:Raycast(pos + Vector3.new(0, 0.1, 0), Vector3.new(0, 3, 0), params)
+        if headUp then return false end
+        -- ground check
+        local ground = workspace:Raycast(pos + Vector3.new(0, 1, 0), Vector3.new(0, -1.5, 0), params)
+        return ground ~= nil
+    end
+
+    local function findSafeSpot(origin)
+        local char = lplr.Character
+        if not char then return nil end
+
+        scanParams.FilterDescendantsInstances = {char, gameCamera}
+
+        local meta = bedwars.ProjectileMeta.telepearl
+        if not meta then return nil end
+
+        local ping = math.clamp(lplr:GetNetworkPing(), 0.03, 0.15)
+        local candidates = {}
+
+        -- scan in concentric rings
+        local rings = {
+            {dist = 4, steps = 12},
+            {dist = 7, steps = 16},
+            {dist = 10, steps = 20},
+            {dist = 14, steps = 24},
+            {dist = 18, steps = 28},
+            {dist = 24, steps = 32},
+        }
+
+        for _, ring in ipairs(rings) do
+            for i = 0, ring.steps - 1 do
+                local angle = (i / ring.steps) * math.pi * 2
+                local offsetX = math.cos(angle) * ring.dist
+                local offsetZ = math.sin(angle) * ring.dist
+
+                -- ray down from above to find ground
+                local skyOrigin = Vector3.new(origin.X + offsetX, origin.Y + 60, origin.Z + offsetZ)
+                local downRay = workspace:Raycast(skyOrigin, Vector3.new(0, -130, 0), scanParams)
+
+                if downRay then
+                    local hit = downRay
+                    local normal = hit.Normal
+                    local block = hit.Instance
+
+                    -- only land on walkable surfaces
+                    if normal.Y > 0.7 and block and block:IsA("BasePart") then
+                        local blockTop = block.Position.Y + (block.Size.Y / 2)
+                        local spot = Vector3.new(hit.Position.X, blockTop + 0.1, hit.Position.Z)
+
+                        if isValidSpot(spot, scanParams) then
+                            -- verify trajectory is solvable
+                            local calc = prediction.SolveTrajectory(
+                                origin,
+                                meta.launchVelocity,
+                                meta.gravitationalAcceleration,
+                                spot,
+                                Vector3.zero,
+                                workspace.Gravity,
+                                0, 0, nil, false,
+                                ping
+                            )
+
+                            if calc then
+                                local dist2d = Vector2.new(origin.X - spot.X, origin.Z - spot.Z).Magnitude
+                                local heightDiff = spot.Y - origin.Y
+                                candidates[#candidates + 1] = {
+                                    spot = spot,
+                                    dist = dist2d,
+                                    heightDiff = heightDiff
+                                }
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        if #candidates == 0 then return nil end
+
+        -- sort: prefer same height or higher, then closest
+        table.sort(candidates, function(a, b)
+            local aSafe = a.heightDiff >= -8
+            local bSafe = b.heightDiff >= -8
+            if aSafe ~= bSafe then return aSafe end
+            if math.abs(a.heightDiff) < math.abs(b.heightDiff) then return true end
+            if math.abs(a.heightDiff) > math.abs(b.heightDiff) then return false end
+            return a.dist < b.dist
+        end)
+
+        return candidates[1].spot
+    end
+
+    local function executePearl(spot)
+        local slot, item = getPearlSlot()
+        if not slot or not item then return end
+
+        local root = entitylib.character.RootPart
+        local origin = root.Position
+
+        if LimitItems.Enabled then
+            if not isHoldingPearl() then return end
+            throwPearl(origin, spot, item.tool)
+            return
+        end
+
+        if isHoldingPearl() then
+            throwPearl(origin, spot, item.tool)
+        else
+            local originalSlot = store.inventory.hotbarSlot
+            hotbarSwitch(slot)
+            task.wait(0.08)
+            throwPearl(origin, spot, item.tool)
+            task.wait(0.05)
+            hotbarSwitch(originalSlot)
+        end
+    end
+
     AutoPearl = vape.Categories.Utility:CreateModule({
         Name = 'AutoPearl',
         Function = function(callback)
