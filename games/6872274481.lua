@@ -28377,27 +28377,6 @@ run(function()
         if ESPColor and ESPColor.Object then ESPColor.Object.Visible = false end
     end)
 end)
-run(function()
-    local SigridExploit
-    local Kit, Mount = 'elk_master', bedwars.Client:Get('ElkKitMounted')
-
-    SigridExploit = vape.Categories.Kits:CreateModule({
-        Name = 'Infinite Sigrid',
-        Tooltip = 'Lets you ride in the elk forever',
-        Function = function(call)
-            if call then
-                repeat
-                    if entitylib.isAlive then
-                        if store.equippedKit == Kit then
-                            Mount:SendToServer()
-                        end
-                    end
-                    task.wait()
-                until not SigridExploit.Enabled
-            end
-        end
-    })
-end)
 
 run(function()
 	local AutoEmber
