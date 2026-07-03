@@ -34986,3 +34986,93 @@ run(function()
     })
     Check = AntiLasso:CreateToggle({Name = 'Only when targeting'})
 end)
+run(function()
+    local GreyPlayers
+    local originalColors = {}
+    local originalMaterials = {}
+    
+    local function applyGrey(char)
+        if not char then return end
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                if not originalColors[part] then
+                    originalColors[part] = part.Color
+                    originalMaterials[part] = part.Material
+                end
+                part.Color = Color3.fromRGB(120, 120, 120)
+                part.Material = Enum.Material.SmoothPlastic
+            end
+        end
+    end
+    
+    local function restoreChar(char)
+        if not char then return end
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") and originalColors[part] then
+                part.Color = originalColors[part]
+                part.Material = originalMaterials[part]
+                originalColors[part] = nil
+                originalMaterials[part] = nil
+            end
+        end
+    end
+    
+    GreyPlayers = vape.Categories.Render:CreateModule({
+        Name = 'GreyPlayers',
+        Function = function(callback)
+            if callback then
+                for _, ent in ipairs(entitylib.List) do
+                    if ent.Character then applyGrey(ent.Character) end
+                end
+                GreyPlayers:Clean(entitylib.Events.EntityAdded:Connect(function(ent)
+                    if ent.Character then
+                        task.wait(0.1)
+                        applyGrey(ent.Character)
+                    end
+                end))
+                GreyPlayers:Clean(workspace.DescendantAdded:Connect(function(desc)
+                    if desc:IsA("BasePart") then
+                        local char = desc.Parent
+                        while char and char ~= workspace do
+                            if char:FindFirstChildOfClass("Humanoid") then
+                                applyGrey(char)
+                                break
+                            end
+                            char = char.Parent
+                        end
+                    end
+                end))
+            else
+                for _, ent in ipairs(entitylib.List) do
+                    if ent.Character then restoreChar(ent.Character) end
+                end
+                for part, color in pairs(originalColors) do
+                    if part and part.Parent then
+                        part.Color = color
+                        part.Material = originalMaterials[part]
+                    end
+                end
+                table.clear(originalColors)
+                table.clear(originalMaterials)
+            end
+        end,
+        Tooltip = 'Makes all players grey for a clean aesthetic'
+    })
+    
+    GreyPlayers:CreateColorSlider({
+        Name = 'Grey Shade',
+        DefaultHue = 0,
+        DefaultSat = 0,
+        DefaultValue = 0.5,
+        Function = function(h, s, v)
+            local newColor = Color3.fromHSV(h, s, v)
+            for part, _ in pairs(originalColors) do
+                if part and part.Parent then
+                    part.Color = newColor
+                end
+            end
+        end
+    })
+end)
+																								
+																								
